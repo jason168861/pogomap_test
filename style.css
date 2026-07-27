@@ -2,7 +2,7 @@
   --bg:#0f1419; --panel:#161d26; --line:#2a3441; --fg:#e6edf3; --dim:#8b98a5;
   --valor:#ef4444; --mystic:#3b82f6; --instinct:#eab308; --neutral:#94a3b8;
   --stop:#0284c7; --power:#9333ea; --event:#ea580c; --ok:#22c55e;
-  --route:#0d9488; --mega:#ec4899;
+  --mega:#ec4899;
   --topbar-h:48px;
 }
 *{box-sizing:border-box}
@@ -72,17 +72,19 @@ input[type=search]{width:100%;background:#0f1720;border:1px solid var(--line);bo
 
 /* ---- 地圖上的標記 ---- */
 /* 道館：染色過的道館圖示；有團體戰時多一圈脈動光暈和 boss 縮圖 */
-.gm{background:none;border:none}
-.gm .gi{width:100%;height:100%;display:block;
+.gm{background:none;border:none;cursor:pointer}
+/* 圖示置中在 44x44 的可點擊方框裡，四周透明的部分一樣吃得到點擊 */
+.gm .gi{position:absolute;left:50%;top:50%;width:28px;height:29px;
+  margin:-16px 0 0 -14px;display:block;
   filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))}
 .gm:hover .gi{filter:drop-shadow(0 0 4px #fff) drop-shadow(0 1px 2px rgba(0,0,0,.5))}
-.gm .ring{position:absolute;left:50%;top:50%;width:34px;height:34px;margin:-17px 0 0 -17px;
+.gm .ring{position:absolute;left:50%;top:50%;width:34px;height:34px;margin:-19px 0 0 -17px;
   border:2.5px solid #16a34a;border-radius:50%;animation:pulse 1.8s ease-out infinite;
   pointer-events:none}
-.gm .gb{position:absolute;right:-9px;top:-9px;width:22px;height:22px;object-fit:contain;
+.gm .gb{position:absolute;right:2px;top:2px;width:22px;height:22px;object-fit:contain;
   background:#fff;border:2px solid #16a34a;border-radius:50%;
   box-shadow:0 1px 3px rgba(0,0,0,.5)}
-.gm .mega{position:absolute;left:-3px;bottom:1px;width:8px;height:8px;border-radius:50%;
+.gm .mega{position:absolute;left:6px;bottom:9px;width:8px;height:8px;border-radius:50%;
   background:var(--mega);border:1.5px solid #fff;box-shadow:0 1px 2px rgba(0,0,0,.5)}
 @keyframes pulse{
   0%{transform:scale(.55);opacity:.95}
@@ -91,15 +93,15 @@ input[type=search]{width:100%;background:#0f1720;border:1px solid var(--line);bo
 }
 
 /* Power Spot */
-.ps{background:none;border:none}
-.ps i{position:absolute;inset:0;border-radius:50%;background:var(--power);
+.ps{background:none;border:none;cursor:pointer}
+.ps i{position:absolute;inset:5px;border-radius:50%;background:var(--power);
   border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5)}
-.ps img{position:absolute;inset:3px;width:24px;height:24px;object-fit:contain;z-index:1;
+.ps img{position:absolute;inset:8px;width:24px;height:24px;object-fit:contain;z-index:1;
   filter:drop-shadow(0 1px 1px rgba(0,0,0,.4))}
 
 /* Campfire 活動 */
-.ev{background:none;border:none}
-.ev i{position:absolute;inset:0;border-radius:50%;background:var(--event);
+.ev{background:none;border:none;cursor:pointer}
+.ev i{position:absolute;inset:6px;border-radius:50%;background:var(--event);
   border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5)}
 
 /* ---- popup ---- */
@@ -136,7 +138,7 @@ body.lightmap .leaflet-control-attribution a{color:#0369a1}
 
 
 /* 團體戰的蛋 */
-.gm .gegg{position:absolute;right:-9px;top:-9px;width:20px;height:20px;border-radius:50%;
+.gm .gegg{position:absolute;right:2px;top:2px;width:20px;height:20px;border-radius:50%;
   border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.5);font-size:11px;font-weight:700;
   color:#fff;display:flex;align-items:center;justify-content:center;font-style:normal;
   line-height:1}
@@ -184,7 +186,6 @@ body.lightmap .leaflet-control-attribution a{color:#0369a1}
 #gridLevel{width:100%;margin-top:5px;background:#0f1720;color:var(--fg);
   border:1px solid var(--line);border-radius:6px;padding:5px 7px;font:inherit;font-size:12px}
 .note{font-size:10px;color:var(--dim);margin-top:5px;line-height:1.5}
-.sw-route{background:var(--route)}
 .sw-mega{background:var(--mega)}
 .locate-control a{display:flex;align-items:center;justify-content:center;
   width:30px;height:30px;color:#333}
@@ -197,3 +198,5 @@ body.lightmap .leaflet-control-attribution a{color:#0369a1}
   #topbar h1{font-size:13px}
   .stats{display:none}
 }
+
+.stopicon{cursor:pointer}

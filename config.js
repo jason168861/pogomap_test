@@ -10,7 +10,7 @@ window.APP_CONFIG = {
   source: 'direct',
 
   // 一般資料的更新間隔（秒）。0 = 不自動更新。
-  // 這一趟「不帶 token」，抓道館 / 補給站 / 團體戰 / 路線 / 活動。
+  // 這一趟「不帶 token」，抓道館 / 補給站 / 團體戰 / 活動。
   // 每次 5 個請求約 3.3 MB，120 秒約等於 100 MB/小時。
   // 網址加 ?refresh=300 可以臨時改成 5 分鐘（手機吃行動網路時好用）。
   refreshSec: 120,
@@ -35,8 +35,6 @@ window.APP_CONFIG = {
   stopMinZoom: 14,
   // 放到這個倍率以上，補給站改用圖示（而不是小圓點）
   stopIconZoom: 17,
-  // 路線一千多條，也是放大才畫
-  routeMinZoom: 15,
 
   // S2 網格預設 level（14 = 道館網格，17 = 補給站網格）
   gridLevel: 17,

@@ -2,7 +2,7 @@
    桃園四區地圖 — 蘆竹 / 大園 / 桃園 / 中壢
    資料來自 Niantic 的 GraphQL（realityChannelMapObjectsByS2Cells）。
    CORS 全開（ACAO: *），所以瀏覽器可以直接抓，不需要任何後端。
-   道館 / 補給站 / 路線 / 活動不需要登入；
+   道館 / 補給站 / 團體戰 / 活動不需要登入；
    但實測 PGO_POWERSPOT（極巨化能量點）需要 Bearer token 才會回傳，
    沒帶 token 時它不會報錯，只是靜默地不出現。token 由使用者自己貼，存在 localStorage。
 --------------------------------------------------------------------------- */
@@ -35,7 +35,7 @@ const TEAM = {
 };
 // 極致超級團體戰（isMegaEnhancedEligible）—— 跟極巨化 / Power Spot 無關，用不同顏色區分
 const C_MEGA = '#ec4899', C_STOP = '#0284c7', C_POWER = '#9333ea',
-      C_EVENT = '#ea580c', C_ROUTE = '#0d9488';
+      C_EVENT = '#ea580c';
 
 /* 團體戰星級。實測 rating 的值：
      1/3/5 = 一般星級、6 = 超級(Mega)、11/13/15 = 暗影（減 10 就是星級）
@@ -77,7 +77,7 @@ const BASEMAPS = {
 // 兩趟請求分開：公開那趟不帶 token，能量點那趟才帶。
 // 這樣一天下來只有很少的請求會暴露帳號。
 // （query 內容跟 local/fetch_local.py、worker/src/index.js 對應）
-const DROP_PUBLIC = ['PGO_GYM', 'CA_EVENT', 'PGO_POKESTOP', 'PGO_ROUTE'];
+const DROP_PUBLIC = ['PGO_GYM', 'CA_EVENT', 'PGO_POKESTOP'];
 const DROP_POWER = ['PGO_POWERSPOT'];
 
 const QUERY_PUBLIC = `query PogoMap($i: RealityChannelMapObjectsByS2CellsInput!) {
@@ -87,10 +87,6 @@ const QUERY_PUBLIC = `query PogoMap($i: RealityChannelMapObjectsByS2CellsInput!)
       pgoGym { location{latitude longitude} name imageUrl team isMegaEnhancedEligible
                raid { bossName bossImageUrl startTime endTime rating } }
       pgoPokestop { location{latitude longitude} name description imageUrl }
-      pgoRoute { location{latitude longitude} name description
-                 distanceMeters durationSeconds reversible tagList
-                 startPoi{ fortId location{latitude longitude} }
-                 endPoi{ fortId location{latitude longitude} } }
       event { id name coverPhotoUrl eventType address clubId location }
     } } } } }`;
 
@@ -179,7 +175,7 @@ function updateTokenUI() {
 }
 
 const state = {
-  pub: [],            // 不帶 token 抓到的（道館/補給站/團體戰/路線/活動）
+  pub: [],            // 不帶 token 抓到的（道館/補給站/團體戰/活動）
   power: [],          // 帶 token 抓到的（能量點）
   items: [],          // 上面兩者合併，render 用
   cells: [],
@@ -329,17 +325,7 @@ function normalize(raw) {
         rating: mb.rating, open: parseTime(mb.openTime),
         s: p.overrideBattleStartMinutes, e: p.overrideBattleEndMinutes
       });
-    } else if (o.type === 'PGO_ROUTE' && o.pgoRoute) {
-      const r = o.pgoRoute;
-      out.push({
-        k: 'route', id: o.id, lat: r.location.latitude, lng: r.location.longitude,
-        n: r.name || '(未命名路線)', d: r.description || '',
-        dist: r.distanceMeters, dur: r.durationSeconds,
-        rev: !!r.reversible, tags: r.tagList || [],
-        s1: r.startPoi ? [r.startPoi.location.latitude, r.startPoi.location.longitude] : null,
-        s2: r.endPoi ? [r.endPoi.location.latitude, r.endPoi.location.longitude] : null
-      });
-    } else if (o.type === 'CA_EVENT' && o.event) {
+        } else if (o.type === 'CA_EVENT' && o.event) {
       const e = o.event;
       const loc = (e.location && typeof e.location === 'object') ? e.location : null;
       out.push({
@@ -483,7 +469,6 @@ const map = L.map('map', { zoomControl: true, preferCanvas: true })
 // ★ 分層：補給站一定要在道館下面，否則它的 canvas 會蓋住道館、讓道館點不到。
 map.createPane('pGrid');   map.getPane('pGrid').style.zIndex = 395;
 map.createPane('pBorder'); map.getPane('pBorder').style.zIndex = 400;
-map.createPane('pRoutes'); map.getPane('pRoutes').style.zIndex = 410;
 map.createPane('pStops');  map.getPane('pStops').style.zIndex = 420;
 map.createPane('pGyms');   map.getPane('pGyms').style.zIndex = 460;
 map.createPane('pTop');    map.getPane('pTop').style.zIndex = 480;
@@ -500,11 +485,10 @@ function setBasemap(key) {
   try { localStorage.setItem('basemap', key); } catch (e) { /* 無痕模式 */ }
 }
 
-const rStop = L.canvas({ pane: 'pStops', padding: .3, tolerance: 6 });
-const rRoute = L.canvas({ pane: 'pRoutes', padding: .3, tolerance: 6 });
+// tolerance 是「點擊容錯圈」的像素數，開大一點比較好點
+const rStop = L.canvas({ pane: 'pStops', padding: .3, tolerance: 12 });
 
 const layers = {
-  route:  L.layerGroup().addTo(map),
   stop:   L.layerGroup().addTo(map),
   gym:    L.layerGroup().addTo(map),
   power:  L.layerGroup().addTo(map),
@@ -538,14 +522,17 @@ function gymDivIcon(it) {
     }
   }
   if (it.megaRaid) html += `<i class="mega" title="極致超級團體戰"></i>`;
+  // iconSize 開到 44x44（圖示本身還是 28x29，四周多出來的是透明的可點擊範圍）。
+  // 手機的建議觸控目標是 44px，滑鼠也比較好瞄。
   return L.divIcon({
     className: 'gm' + (it.raid ? ' has-raid' : ''),
-    html, iconSize: [28, 29], iconAnchor: [14, 27], popupAnchor: [0, -25]
+    html, iconSize: [44, 44], iconAnchor: [22, 35], popupAnchor: [0, -32]
   });
 }
 
 const STOP_ICON = L.icon({
-  iconUrl: 'img/stop.png', iconSize: [17, 25], iconAnchor: [8, 24], popupAnchor: [0, -22]
+  iconUrl: 'img/stop.png', iconSize: [17, 25], iconAnchor: [8, 24], popupAnchor: [0, -22],
+  className: 'stopicon'
 });
 
 /* ------------------------------------------------------------ popup --- */
@@ -614,27 +601,6 @@ function popupPower(it) {
   return h + coordFoot(it) + `</div>`;
 }
 
-function popupRoute(it) {
-  let h = `<div class="pop"><h3>${esc(it.n)}</h3>`;
-  h += `<div class="meta"><span class="tag" style="background:${C_ROUTE}">路線</span></div>`;
-  if (it.d) h += `<div class="meta">${esc(it.d)}</div>`;
-  const bits = [];
-  if (it.dist != null) bits.push(`${(it.dist / 1000).toFixed(2)} 公里`);
-  if (it.dur != null) bits.push(`約 ${Math.round(it.dur / 60)} 分鐘`);
-  if (it.rev) bits.push('可雙向');
-  if (bits.length) h += `<div class="meta">${bits.join(' ｜ ')}</div>`;
-  if (it.tags && it.tags.length) {
-    // route_tag_xxx 是還沒在地化的內部代號，轉成看得懂的字
-    const T = { route_tag_afternoon: '午後', route_tag_morning: '早晨', route_tag_culture: '人文',
-      route_tag_food: '美食', route_tag_running: '慢跑', route_tag_paved: '鋪面平整',
-      route_tag_biking: '單車', route_tag_walking: '散步', route_tag_parking: '有停車位',
-      route_tag_architecture: '建築', route_tag_body_of_water: '水岸' };
-    h += `<div class="tags">` +
-      it.tags.map(t => `<span>${esc(T[t] || t)}</span>`).join('') + `</div>`;
-  }
-  return h + coordFoot(it) + `</div>`;
-}
-
 function popupEvent(it) {
   let h = `<div class="pop"><h3>${esc(it.n)}</h3>`;
   if (it.img) h += `<img class="photo" src="${esc(it.img)}" loading="lazy" alt="">`;
@@ -643,26 +609,13 @@ function popupEvent(it) {
   return h + (it.lat != null ? coordFoot(it) : '') + `</div>`;
 }
 
-// 點路線時，用虛線把起點和終點連起來（只是直線示意，不是實際走的路徑）
-let routeLine = null;
-function showRouteLine(it) {
-  if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
-  if (!it.s1 || !it.s2) return;
-  routeLine = L.polyline([it.s1, it.s2], {
-    pane: 'pRoutes', color: C_ROUTE, weight: 3, opacity: .8, dashArray: '7,6', interactive: false
-  }).addTo(map);
-}
-map.on('popupclose', () => { if (routeLine) { map.removeLayer(routeLine); routeLine = null; } });
-
-const POPUP = { gym: popupGym, stop: popupStop, power: popupPower,
-                route: popupRoute, event: popupEvent };
+const POPUP = { gym: popupGym, stop: popupStop, power: popupPower, event: popupEvent };
 const popupFor = it => POPUP[it.k](it);
 
 /* -------------------------------------------------------------- 繪製 --- */
 // ★ 增量更新：只加新的、只刪走掉的，已經在畫面上的 marker 原封不動。
 //   這樣重繪不會把使用者正在看的東西砍掉，效能也好很多。
-const drawn = { gym: new Map(), stop: new Map(), power: new Map(),
-                event: new Map(), route: new Map() };
+const drawn = { gym: new Map(), stop: new Map(), power: new Map(), event: new Map() };
 
 function syncLayer(kind, wanted, makeMarker, sigOf) {
   const cur = drawn[kind], lay = layers[kind];
@@ -673,10 +626,7 @@ function syncLayer(kind, wanted, makeMarker, sigOf) {
   for (const [id, it] of wanted) {
     if (cur.has(id)) continue;
     const m = makeMarker(it);
-    m.on('click', () => {
-      if (it.k === 'route') showRouteLine(it);
-      openPopup([it.lat, it.lng], popupFor(it));
-    });
+    m.on('click', () => openPopup([it.lat, it.lng], popupFor(it)));
     lay.addLayer(m);
     cur.set(id, { m, sig: sigOf(it) });
   }
@@ -702,11 +652,10 @@ function render() {
   const zoom = map.getZoom();
   const b = map.getBounds().pad(0.25);
   const inView = it => it.lat != null && b.contains([it.lat, it.lng]);
-  const counts = { gym: 0, stop: 0, power: 0, event: 0, route: 0, raid: 0,
+  const counts = { gym: 0, stop: 0, power: 0, event: 0, raid: 0,
                    VALOR: 0, MYSTIC: 0, INSTINCT: 0, NEUTRAL: 0, mega: 0 };
 
-  const want = { gym: new Map(), stop: new Map(), power: new Map(),
-                 event: new Map(), route: new Map() };
+  const want = { gym: new Map(), stop: new Map(), power: new Map(), event: new Map() };
   const raids = [], powers = [];
 
   for (const it of state.items) {
@@ -726,11 +675,6 @@ function render() {
         if (f.layer.has('stop') && zoom >= CFG.stopMinZoom && inView(it))
           want.stop.set(it.id, it);
         break;
-      case 'route':
-        counts.route++;
-        if (f.layer.has('route') && zoom >= CFG.routeMinZoom && inView(it))
-          want.route.set(it.id, it);
-        break;
       case 'power':
         counts.power++; powers.push(it);
         if (f.layer.has('power')) want.power.set(it.id, it);
@@ -747,15 +691,9 @@ function render() {
     it => useStopIcon
       ? L.marker([it.lat, it.lng], { icon: STOP_ICON, pane: 'pStops' })
       : L.circleMarker([it.lat, it.lng], {
-          renderer: rStop, pane: 'pStops', radius: 3.5, color: '#fff', weight: 1.2,
+          renderer: rStop, pane: 'pStops', radius: 4, color: '#fff', weight: 1.5,
           fillColor: C_STOP, fillOpacity: .95 }),
     () => (useStopIcon ? 'i' : 'c'));
-
-  syncLayer('route', want.route,
-    it => L.circleMarker([it.lat, it.lng], {
-      renderer: rRoute, pane: 'pRoutes', radius: 4.5, color: '#fff', weight: 1.2,
-      fillColor: C_ROUTE, fillOpacity: .9 }),
-    () => 'r');
 
   syncLayer('gym', want.gym,
     it => L.marker([it.lat, it.lng], {
@@ -768,7 +706,7 @@ function render() {
       pane: 'pTop', riseOnHover: true, title: it.n,
       icon: L.divIcon({ className: 'ps',
         html: (it.img ? `<img src="${esc(it.img)}" alt="">` : '') + '<i></i>',
-        iconSize: [30, 30], iconAnchor: [15, 15], popupAnchor: [0, -14] }) }),
+        iconSize: [40, 40], iconAnchor: [20, 20], popupAnchor: [0, -18] }) }),
     it => it.boss || '');
 
   syncLayer('event', want.event,
@@ -784,8 +722,6 @@ function render() {
   $('#cGym').textContent   = counts.gym.toLocaleString();
   $('#cStop').textContent  = zoom < CFG.stopMinZoom
     ? counts.stop.toLocaleString() + '（放大顯示）' : counts.stop.toLocaleString();
-  $('#cRoute').textContent = zoom < CFG.routeMinZoom
-    ? counts.route.toLocaleString() + '（放大顯示）' : counts.route.toLocaleString();
   $('#cPower').textContent = counts.power;
   $('#cEvent').textContent = counts.event;
   $('#cRaid').textContent  = counts.raid;
@@ -795,7 +731,7 @@ function render() {
 
   $('#stats').innerHTML =
     `<b>${counts.stop.toLocaleString()}</b> 補給站 · <b>${counts.gym.toLocaleString()}</b> 道館 · ` +
-    `<b>${counts.route.toLocaleString()}</b> 路線 · <b>${counts.raid}</b> 團體戰 · ` +
+    `<b>${counts.raid}</b> 團體戰 · ` +
     `<b>${counts.power}</b> 能量點`;
   if (state.lastUpdate) $('#clock').textContent = '更新於 ' + hhmm(state.lastUpdate);
 
@@ -1075,14 +1011,10 @@ map.on('mousemove', e => {
   $('#coordbox').textContent =
     `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
 });
-map.on('click', e => {
-  if (map.getZoom() < 13) return;         // 縮太小時點地圖不放座標
-  openPopup(e.latlng, `<div class="pop"><h3>座標</h3>
-    <div class="coord">${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}</div>
-    <a class="nav" target="_blank" rel="noopener"
-       href="https://www.google.com/maps/dir/?api=1&destination=${e.latlng.lat},${e.latlng.lng}">在 Google 地圖開啟 ↗</a>
-    </div>`);
-});
+// 注意：這裡刻意「不要」加 map.on('click')。
+// Leaflet 的 marker 點擊事件會往上冒泡到地圖，如果地圖也監聽 click 並開 popup，
+// 就會把 marker 剛開好的 popup 內容蓋掉，看起來就像「點不到那個點」。
+// 想看座標的話，左下角的 #coordbox 已經跟著滑鼠即時顯示了。
 
 /* -------------------------------------------------------------- 搜尋 --- */
 function renderSearch(q) {
@@ -1095,7 +1027,7 @@ function renderSearch(q) {
     box.innerHTML = '<div class="empty">資料裡找不到，按 Enter 可以改搜尋地址</div>';
     return;
   }
-  const LABEL = { gym: '道館', stop: '補給站', power: '能量點', route: '路線', event: '活動' };
+  const LABEL = { gym: '道館', stop: '補給站', power: '能量點', event: '活動' };
   for (const it of hits) box.appendChild(row(it.img, it.n, LABEL[it.k], () => flyTo(it)));
 }
 
