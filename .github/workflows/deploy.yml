@@ -1,0 +1,62 @@
+# 部署到 GitHub Pages，並在 build 時把 Google Maps API key 從 Secret 注入。
+# key 永遠不會進 repo —— 它只存在 GitHub Secrets 和 build 出來的產物裡。
+#
+# 用之前要做兩件事：
+#   1. repo -> Settings -> Secrets and variables -> Actions -> New repository secret
+#      名稱 MAPS_API_KEY，值貼上你的 Google Maps API key
+#   2. repo -> Settings -> Pages -> Source 改成 "GitHub Actions"
+#      （不是原本的 "Deploy from a branch"）
+
+name: Deploy site
+
+concurrency:
+  group: pages-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:      # 也可以到 Actions 分頁手動觸發
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # config.js 本身有版控（更新間隔、底圖等設定都在裡面），
+      # 這裡只「附加」一行把 key 覆寫上去，不動原本的內容。
+      # 沒設 secret 的話這行會寫成空字串，網頁就自動退回用 OpenStreetMap 搜尋。
+      - name: Inject Google Maps API key
+        env:
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+        run: |
+          echo "" >> config.js
+          echo "// 由 GitHub Actions 於部署時注入，原始碼裡沒有這把 key" >> config.js
+          echo "window.APP_CONFIG.mapsApiKey = \"$MAPS_API_KEY\";" >> config.js
+          if [ -n "$MAPS_API_KEY" ]; then
+            echo "已注入 API key（結尾 ...${MAPS_API_KEY: -6}）"
+          else
+            echo "警告：沒有設定 MAPS_API_KEY secret，搜尋會退回 OpenStreetMap"
+          fi
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

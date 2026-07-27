@@ -152,21 +152,11 @@ function tokenExp(t) {
   } catch (e) { return null; }
 }
 /* --------------------------------------------- Google Maps API Key --- */
-// 地點搜尋用。沒設就退回 OpenStreetMap 的 Nominatim（免費但結果較差）。
-// 存在 localStorage，不會進 repo；也可以寫在 config.js 的 mapsApiKey。
-const GKEY_KEY = 'maps_api_key';
+// key 由 GitHub Actions 在部署時從 Secret 注入（附加一行到 config.js），
+// 原始碼和 repo 裡都沒有它。本機開發時是空的，搜尋會自動退回 OpenStreetMap。
+// window.MAPS_API_KEY 是為了跟 toolbox 的注入方式相容。
 function getMapsKey() {
-  try {
-    return (localStorage.getItem(GKEY_KEY) || CFG.mapsApiKey || '').trim();
-  } catch (e) { return (CFG.mapsApiKey || '').trim(); }
-}
-function updateMapsKeyUI() {
-  const el = $('#gkeyState');
-  if (!el) return;
-  const k = getMapsKey();
-  el.textContent = k ? `已設定（…${k.slice(-6)}），搜尋使用 Google 地圖`
-                     : '未設定，搜尋使用 OpenStreetMap';
-  el.className = 'tokstate ' + (k ? 'ok' : 'warn');
+  return ((window.MAPS_API_KEY || CFG.mapsApiKey || '') + '').trim();
 }
 
 function authHeader() {
@@ -1073,7 +1063,7 @@ function gotoPlace(name, addr, lat, lng) {
   });
 }
 
-async function searchGoogle(q, box) {
+async function searchGoogle(q) {
   const c = map.getCenter();
   const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
     method: 'POST',
@@ -1109,20 +1099,45 @@ async function searchNominatim(q) {
   }));
 }
 
+// 預設用 Google 地圖搜尋；沒有 key、或 Google 出錯／查無結果時，自動改用 OpenStreetMap
 async function searchAddress(q) {
   const box = $('#qList');
-  const useGoogle = !!getMapsKey();
-  box.innerHTML = `<div class="empty">用 ${useGoogle ? 'Google 地圖' : 'OpenStreetMap'} 搜尋中…</div>`;
-  try {
-    const list = useGoogle ? await searchGoogle(q, box) : await searchNominatim(q);
-    box.textContent = '';
-    if (!list.length) { box.innerHTML = '<div class="empty">找不到這個地點</div>'; return; }
-    for (const a of list) {
-      box.appendChild(row('', a.name, a.addr, () => gotoPlace(a.name, a.addr, a.lat, a.lng)));
+  const hasKey = !!getMapsKey();
+  box.innerHTML = `<div class="empty">${hasKey ? 'Google 地圖' : 'OpenStreetMap'} 搜尋中…</div>`;
+
+  let list = null, via = '', fallbackWhy = '';
+  if (hasKey) {
+    try {
+      list = await searchGoogle(q);
+      via = 'Google 地圖';
+      if (!list.length) { fallbackWhy = 'Google 查無結果'; list = null; }
+    } catch (e) {
+      fallbackWhy = 'Google 失敗：' + e.message;
+      log('Google 搜尋失敗，改用 OpenStreetMap：' + e.message);
+      list = null;
     }
-  } catch (e) {
-    box.innerHTML = `<div class="empty">搜尋失敗：${esc(e.message)}</div>`;
-    log('地點搜尋失敗: ' + e.message);
+  }
+
+  if (!list) {
+    if (fallbackWhy) box.innerHTML = `<div class="empty">${esc(fallbackWhy)}，改用 OpenStreetMap…</div>`;
+    try {
+      list = await searchNominatim(q);
+      via = 'OpenStreetMap' + (fallbackWhy ? '（Google 沒結果）' : '');
+    } catch (e) {
+      box.innerHTML = `<div class="empty">搜尋失敗：${esc(e.message)}</div>`;
+      return;
+    }
+  }
+
+  box.textContent = '';
+  if (!list.length) { box.innerHTML = '<div class="empty">找不到這個地點</div>'; return; }
+  const hint = document.createElement('div');
+  hint.className = 'empty';
+  hint.style.cssText = 'padding:2px;font-size:10px';
+  hint.textContent = '結果來自 ' + via;
+  box.appendChild(hint);
+  for (const a of list) {
+    box.appendChild(row('', a.name, a.addr, () => gotoPlace(a.name, a.addr, a.lat, a.lng)));
   }
 }
 
@@ -1154,19 +1169,6 @@ $('#tokenSave').addEventListener('click', () => {
   updateTokenUI();
   toast(v ? '已儲存，抓取能量點中…' : '已清除');
   if (v) refreshPower(true); else { state.power = []; mergeItems(); render(); }
-});
-$('#gkeySave').addEventListener('click', () => {
-  const v = $('#gkeyInput').value.trim();
-  try {
-    if (v) localStorage.setItem(GKEY_KEY, v); else localStorage.removeItem(GKEY_KEY);
-  } catch (e) { toast('瀏覽器不允許儲存'); return; }
-  $('#gkeyInput').value = '';
-  updateMapsKeyUI();
-  toast(v ? '已儲存，搜尋改用 Google 地圖' : '已清除，搜尋改用 OpenStreetMap');
-});
-$('#gkeyClear').addEventListener('click', () => {
-  try { localStorage.removeItem(GKEY_KEY); } catch (e) { /* ignore */ }
-  $('#gkeyInput').value = ''; updateMapsKeyUI(); toast('已清除');
 });
 $('#tokenClear').addEventListener('click', () => {
   try { localStorage.removeItem(TOKEN_KEY); } catch (e) { /* ignore */ }
@@ -1209,7 +1211,7 @@ map.on('moveend zoomend', () => { scheduleRender(); drawGrid(); });
 
   updateTokenUI();
   updateAuthUI();
-  updateMapsKeyUI();
+  $('#searchVia').textContent = getMapsKey() ? 'Google 地圖' : 'OpenStreetMap（沒有注入 API key）';
   try {
     state.powerCells = JSON.parse(localStorage.getItem('power_cells') || '[]');
   } catch (e) { state.powerCells = []; }
