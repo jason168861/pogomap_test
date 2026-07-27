@@ -96,8 +96,20 @@
 
   <section class="grp">
     <h2>搜尋</h2>
-    <input type="search" id="q" placeholder="輸入名稱…（按 Enter 搜地址）" autocomplete="off">
+    <input type="search" id="q" placeholder="輸入名稱…（按 Enter 搜地點）" autocomplete="off">
     <div id="qList" class="list"></div>
+    <div id="gkeyState" class="tokstate warn" style="margin-top:6px">未設定</div>
+    <input type="password" id="gkeyInput" placeholder="貼上 Google Maps API key（選填）"
+           autocomplete="off" spellcheck="false">
+    <div class="bmrow2">
+      <button type="button" id="gkeySave">儲存</button>
+      <button type="button" id="gkeyClear">清除</button>
+    </div>
+    <div class="note">
+      打字＝即時篩選已載入的道館／補給站；<b>按 Enter</b>＝搜尋地點。<br>
+      設了 Google key 就用 Google 地圖搜尋（跟 toolbox 一樣），沒設則用 OpenStreetMap。<br>
+      要開通的是 <b>Places API (New)</b>。key 只存在這台裝置，不會進 GitHub。
+    </div>
   </section>
 
   <section class="grp">

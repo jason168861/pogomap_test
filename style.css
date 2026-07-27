@@ -151,7 +151,7 @@ body.lightmap .leaflet-control-attribution a{color:#0369a1}
 .tokstate{font-size:11px;padding:4px 8px;border-radius:5px;margin-bottom:6px;line-height:1.5}
 .tokstate.ok{background:rgba(34,197,94,.14);color:#4ade80;border:1px solid rgba(34,197,94,.3)}
 .tokstate.warn{background:rgba(234,179,8,.13);color:#fbbf24;border:1px solid rgba(234,179,8,.3)}
-#tokenInput{width:100%;background:#0f1720;border:1px solid var(--line);border-radius:6px;
+#tokenInput,#gkeyInput{width:100%;background:#0f1720;border:1px solid var(--line);border-radius:6px;
   color:var(--fg);padding:6px 8px;font:inherit;font-size:12px;margin-bottom:6px}
 .bmrow2{display:grid;grid-template-columns:1fr 1fr;gap:5px}
 .note a{color:#60a5fa}

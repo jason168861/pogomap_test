@@ -24,6 +24,13 @@ window.APP_CONFIG = {
   // 12 輪 × 5 分鐘 = 每小時完整掃一次。
   powerFullSweepEvery: 12,
 
+  // Google Maps API key（選填）。設了之後「按 Enter 搜地點」會改用 Google 地圖搜尋，
+  // 沒設就用 OpenStreetMap 的 Nominatim。
+  // ⚠ 這個 repo 是公開的，key 寫在這裡等於公開。建議留空，改在側欄的欄位裡貼
+  //    （只存在你這台裝置的 localStorage）。真的要寫在這裡的話，
+  //    請去 Google Cloud Console 幫這把 key 加上「HTTP 參照網址」限制。
+  mapsApiKey: '',
+
   // 預設底圖：'voyager'(亮，道路清楚) / 'light'(極簡亮) / 'dark'(暗) / 'satellite'(衛星)
   basemap: 'voyager',
 

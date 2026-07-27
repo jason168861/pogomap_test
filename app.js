@@ -151,6 +151,24 @@ function tokenExp(t) {
     return p.exp ? p.exp * 1000 : null;
   } catch (e) { return null; }
 }
+/* --------------------------------------------- Google Maps API Key --- */
+// 地點搜尋用。沒設就退回 OpenStreetMap 的 Nominatim（免費但結果較差）。
+// 存在 localStorage，不會進 repo；也可以寫在 config.js 的 mapsApiKey。
+const GKEY_KEY = 'maps_api_key';
+function getMapsKey() {
+  try {
+    return (localStorage.getItem(GKEY_KEY) || CFG.mapsApiKey || '').trim();
+  } catch (e) { return (CFG.mapsApiKey || '').trim(); }
+}
+function updateMapsKeyUI() {
+  const el = $('#gkeyState');
+  if (!el) return;
+  const k = getMapsKey();
+  el.textContent = k ? `已設定（…${k.slice(-6)}），搜尋使用 Google 地圖`
+                     : '未設定，搜尋使用 OpenStreetMap';
+  el.className = 'tokstate ' + (k ? 'ok' : 'warn');
+}
+
 function authHeader() {
   const t = getToken();
   return t ? { Authorization: 'Bearer ' + t } : {};
@@ -467,8 +485,14 @@ const map = L.map('map', { zoomControl: true, preferCanvas: true })
   .setView(CFG.center, CFG.zoom);
 
 // ★ 分層：補給站一定要在道館下面，否則它的 canvas 會蓋住道館、讓道館點不到。
+// 純裝飾的圖層一律放在低層，而且關掉 pointer-events。
+// preferCanvas 模式下 L.circle / L.polygon 會產生一張「覆蓋整個視窗」的 canvas，
+// 就算圖形本身 interactive:false，那張 canvas 元素還是會吃掉點擊 ——
+// 小人的 40/80 公尺範圍圈原本放在最上層，就是這樣讓整張地圖都點不到的。
 map.createPane('pGrid');   map.getPane('pGrid').style.zIndex = 395;
 map.createPane('pBorder'); map.getPane('pBorder').style.zIndex = 400;
+map.createPane('pRings');  map.getPane('pRings').style.zIndex = 405;
+for (const n of ['pGrid', 'pBorder', 'pRings']) map.getPane(n).style.pointerEvents = 'none';
 map.createPane('pStops');  map.getPane('pStops').style.zIndex = 420;
 map.createPane('pGyms');   map.getPane('pGyms').style.zIndex = 460;
 map.createPane('pTop');    map.getPane('pTop').style.zIndex = 480;
@@ -951,9 +975,11 @@ function placePerson(latlng) {
     personMarker = L.marker(latlng, {
       icon: personIcon, draggable: true, pane: 'pPerson', title: '拖曳我來移動'
     }).addTo(map);
-    personC80 = L.circle(latlng, { radius: R80, pane: 'pPerson', color: '#2563eb', weight: 2,
+    // 圈畫在低層（pRings），只有小人本身留在最上層。
+    // 小人是 DOM marker，只佔自己那一小塊，不會擋到別的東西。
+    personC80 = L.circle(latlng, { radius: R80, pane: 'pRings', color: '#2563eb', weight: 2,
       fillColor: '#3b82f6', fillOpacity: .1, interactive: false }).addTo(map);
-    personC40 = L.circle(latlng, { radius: R40, pane: 'pPerson', color: '#ea580c', weight: 2,
+    personC40 = L.circle(latlng, { radius: R40, pane: 'pRings', color: '#ea580c', weight: 2,
       fillColor: '#fb923c', fillOpacity: .15, interactive: false }).addTo(map);
     personMarker.on('drag', e => {
       const p = e.target.getLatLng();
@@ -1024,32 +1050,79 @@ function renderSearch(q) {
   const hits = state.items
     .filter(i => i.lat != null && (i.n || '').toLowerCase().includes(q)).slice(0, 40);
   if (!hits.length) {
-    box.innerHTML = '<div class="empty">資料裡找不到，按 Enter 可以改搜尋地址</div>';
+    box.innerHTML = '<div class="empty">資料裡找不到。按 <b>Enter</b> 可以改搜尋地點</div>';
     return;
   }
   const LABEL = { gym: '道館', stop: '補給站', power: '能量點', event: '活動' };
   for (const it of hits) box.appendChild(row(it.img, it.n, LABEL[it.k], () => flyTo(it)));
 }
 
-// 按 Enter 改用 OpenStreetMap Nominatim 搜地址
+// 按 Enter 搜地點：有 Google API key 就用 Google Places，否則退回 Nominatim
+let searchMarker = null;
+function gotoPlace(name, addr, lat, lng) {
+  map.flyTo([lat, lng], Math.max(map.getZoom(), 16));
+  if (searchMarker) map.removeLayer(searchMarker);
+  searchMarker = L.marker([lat, lng], { pane: 'pPerson', title: name }).addTo(map);
+  map.once('moveend', () => {
+    openPopup([lat, lng], `<div class="pop"><h3>${esc(name)}</h3>` +
+      (addr ? `<div class="meta">${esc(addr)}</div>` : '') +
+      `<div class="coord">${lat.toFixed(6)}, ${lng.toFixed(6)}</div>
+       <a class="nav" target="_blank" rel="noopener"
+          href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}">在 Google 地圖開啟 ↗</a>
+       </div>`);
+  });
+}
+
+async function searchGoogle(q, box) {
+  const c = map.getCenter();
+  const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': getMapsKey(),
+      'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.location'
+    },
+    body: JSON.stringify({
+      textQuery: q, languageCode: 'zh-TW', maxResultCount: 8,
+      locationBias: { circle: { center: { latitude: c.lat, longitude: c.lng }, radius: 50000 } }
+    })
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message || 'Google 錯誤');
+  const list = (data.places || []).map(pl => ({
+    name: pl.displayName ? pl.displayName.text : '(無名稱)',
+    addr: pl.formattedAddress || '',
+    lat: pl.location.latitude, lng: pl.location.longitude
+  }));
+  return list;
+}
+
+async function searchNominatim(q) {
+  const c = map.getCenter();
+  const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8' +
+    '&accept-language=zh-TW&q=' + encodeURIComponent(q) +
+    `&viewbox=${c.lng - .3},${c.lat + .3},${c.lng + .3},${c.lat - .3}`;
+  const arr = await (await fetch(url, { headers: { Accept: 'application/json' } })).json();
+  return (arr || []).map(a => ({
+    name: a.name || a.display_name, addr: a.display_name,
+    lat: +a.lat, lng: +a.lon
+  }));
+}
+
 async function searchAddress(q) {
   const box = $('#qList');
-  box.innerHTML = '<div class="empty">搜尋地址中…</div>';
+  const useGoogle = !!getMapsKey();
+  box.innerHTML = `<div class="empty">用 ${useGoogle ? 'Google 地圖' : 'OpenStreetMap'} 搜尋中…</div>`;
   try {
-    const c = map.getCenter();
-    const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8' +
-      '&accept-language=zh-TW&q=' + encodeURIComponent(q) +
-      `&viewbox=${c.lng - .3},${c.lat + .3},${c.lng + .3},${c.lat - .3}`;
-    const arr = await (await fetch(url, { headers: { Accept: 'application/json' } })).json();
+    const list = useGoogle ? await searchGoogle(q, box) : await searchNominatim(q);
     box.textContent = '';
-    if (!arr.length) { box.innerHTML = '<div class="empty">找不到這個地址</div>'; return; }
-    for (const a of arr) {
-      box.appendChild(row('', a.name || a.display_name, a.display_name, () => {
-        map.flyTo([+a.lat, +a.lon], Math.max(map.getZoom(), 16));
-      }));
+    if (!list.length) { box.innerHTML = '<div class="empty">找不到這個地點</div>'; return; }
+    for (const a of list) {
+      box.appendChild(row('', a.name, a.addr, () => gotoPlace(a.name, a.addr, a.lat, a.lng)));
     }
   } catch (e) {
-    box.innerHTML = '<div class="empty">地址搜尋失敗</div>';
+    box.innerHTML = `<div class="empty">搜尋失敗：${esc(e.message)}</div>`;
+    log('地點搜尋失敗: ' + e.message);
   }
 }
 
@@ -1081,6 +1154,19 @@ $('#tokenSave').addEventListener('click', () => {
   updateTokenUI();
   toast(v ? '已儲存，抓取能量點中…' : '已清除');
   if (v) refreshPower(true); else { state.power = []; mergeItems(); render(); }
+});
+$('#gkeySave').addEventListener('click', () => {
+  const v = $('#gkeyInput').value.trim();
+  try {
+    if (v) localStorage.setItem(GKEY_KEY, v); else localStorage.removeItem(GKEY_KEY);
+  } catch (e) { toast('瀏覽器不允許儲存'); return; }
+  $('#gkeyInput').value = '';
+  updateMapsKeyUI();
+  toast(v ? '已儲存，搜尋改用 Google 地圖' : '已清除，搜尋改用 OpenStreetMap');
+});
+$('#gkeyClear').addEventListener('click', () => {
+  try { localStorage.removeItem(GKEY_KEY); } catch (e) { /* ignore */ }
+  $('#gkeyInput').value = ''; updateMapsKeyUI(); toast('已清除');
 });
 $('#tokenClear').addEventListener('click', () => {
   try { localStorage.removeItem(TOKEN_KEY); } catch (e) { /* ignore */ }
@@ -1123,6 +1209,7 @@ map.on('moveend zoomend', () => { scheduleRender(); drawGrid(); });
 
   updateTokenUI();
   updateAuthUI();
+  updateMapsKeyUI();
   try {
     state.powerCells = JSON.parse(localStorage.getItem('power_cells') || '[]');
   } catch (e) { state.powerCells = []; }
