@@ -27,6 +27,10 @@
 <div id="coordbox" title="滑鼠所在的經緯度">—</div>
 <div id="mapStatus"></div>
 
+<!-- 手機版搜尋列的位置：JS 會在窄螢幕時把 #searchGrp 搬進來，浮在地圖上，
+     不用先開側欄才能搜尋 -->
+<div id="searchHost"></div>
+
 <div id="pegman">
   <div id="pegIcon" title="拖到地圖上放置小人">🧍</div>
   <div class="hint">拖到地圖</div>
@@ -94,17 +98,20 @@
     </div>
   </section>
 
-  <section class="grp">
+  <section class="grp" id="searchGrp">
     <h2>搜尋</h2>
-    <input type="search" id="q" placeholder="輸入名稱…（按 Enter 搜地點）" autocomplete="off">
+    <div class="qbar">
+      <input type="search" id="q" placeholder="搜尋名稱或地點…" autocomplete="off">
+      <button type="button" id="qClear" title="清除搜尋">✕</button>
+    </div>
     <div id="qList" class="list"></div>
     <div class="note">
-      打字＝即時篩選已載入的道館／補給站；<b>按 Enter</b>＝搜尋地點。<br>
-      目前使用：<b id="searchVia">—</b>（Google 失敗時自動改用 OpenStreetMap）
+      <span class="n1">打字＝即時篩選已載入的道館／補給站；<b>按 Enter</b>＝搜尋地點。</span>
+      <span class="n2">目前使用：<b id="searchVia">—</b>（Google 失敗時自動改用 OpenStreetMap）</span>
     </div>
   </section>
 
-  <section class="grp">
+  <section class="grp" id="tokenGrp">
     <h2>Niantic Token（選填）</h2>
     <div id="tokenState" class="tokstate warn">未設定</div>
     <div class="note" style="margin:0 0 6px">

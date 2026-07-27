@@ -1058,6 +1058,26 @@ map.on('mousemove', e => {
 // 想看座標的話，左下角的 #coordbox 已經跟著滑鼠即時顯示了。
 
 /* -------------------------------------------------------------- 搜尋 --- */
+// 窄螢幕時側欄是整頁的抽屜，搜尋擺在裡面等於「要先開側欄才能搜」，很反直覺。
+// 所以窄螢幕就把整個搜尋區塊搬到地圖上方的浮動列，寬螢幕再搬回側欄原位。
+const mqMobile = window.matchMedia('(max-width: 820px)');
+function placeSearch() {
+  const grp = $('#searchGrp');
+  const host = mqMobile.matches ? $('#searchHost') : $('#panel');
+  if (grp.parentNode === host) return;
+  if (host.id === 'panel') host.insertBefore(grp, $('#tokenGrp'));
+  else host.appendChild(grp);
+}
+mqMobile.addEventListener('change', placeSearch);
+
+// 選了搜尋結果之後：手機版把鍵盤和結果收掉，不然整張地圖都被結果清單擋住
+function pick(fn) {
+  return () => {
+    if (mqMobile.matches) { $('#q').blur(); $('#qList').textContent = ''; }
+    fn();
+  };
+}
+
 function renderSearch(q) {
   const box = $('#qList');
   box.textContent = '';
@@ -1074,7 +1094,7 @@ function renderSearch(q) {
   for (const it of hits) {
     const thumb = it.img ||
       (it.k === 'gym' ? `img/gym_${it.team}.png` : FALLBACK[it.k]);
-    box.appendChild(row(thumb, it.n, LABEL[it.k], () => flyTo(it)));
+    box.appendChild(row(thumb, it.n, LABEL[it.k], pick(() => flyTo(it))));
   }
 }
 
@@ -1169,16 +1189,31 @@ async function searchAddress(q) {
   box.appendChild(hint);
   for (const a of list) {
     box.appendChild(row({ text: '📍' }, a.name, a.addr,
-      () => gotoPlace(a.name, a.addr, a.lat, a.lng)));
+      pick(() => gotoPlace(a.name, a.addr, a.lat, a.lng))));
   }
 }
 
-$('#q').addEventListener('input', e => renderSearch(e.target.value.trim().toLowerCase()));
+$('#q').addEventListener('input', e => {
+  const v = e.target.value.trim();
+  e.target.closest('.qbar').classList.toggle('has', !!v);
+  renderSearch(v.toLowerCase());
+});
 $('#q').addEventListener('keydown', e => {
   if (e.key === 'Enter') {
     const v = e.target.value.trim();
-    if (v) searchAddress(v);
+    if (v) { searchAddress(v); e.target.blur(); }   // 手機收鍵盤，結果才看得到
   }
+});
+// 收掉結果之後再點回搜尋框，把剛才的篩選結果叫回來
+$('#q').addEventListener('focus', e => {
+  const v = e.target.value.trim();
+  if (v && !$('#qList').firstChild) renderSearch(v.toLowerCase());
+});
+$('#qClear').addEventListener('click', () => {
+  $('#q').value = '';
+  $('#q').closest('.qbar').classList.remove('has');
+  $('#qList').textContent = '';
+  if (!mqMobile.matches) $('#q').focus();
 });
 
 /* -------------------------------------------------------------- 事件 --- */
@@ -1222,8 +1257,9 @@ map.on('moveend zoomend', () => { scheduleRender(); drawGrid(); });
 
 /* -------------------------------------------------------------- 啟動 --- */
 (async function init() {
-  // 手機預設收起側欄，桌機預設展開
-  togglePanel(window.matchMedia('(max-width: 820px)').matches);
+  // 手機預設收起側欄，桌機預設展開；搜尋列在手機是浮在地圖上的，不跟著側欄收合
+  togglePanel(mqMobile.matches);
+  placeSearch();
 
   let bm = CFG.basemap;
   if (!new URLSearchParams(location.search).has('basemap')) {
