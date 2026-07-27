@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5">
+<meta name="robots" content="noindex, nofollow">
+<title>桃園四區地圖 — 蘆竹 / 大園 / 桃園 / 中壢</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="map"></div>
+
+<header id="topbar">
+  <h1>桃園四區地圖</h1>
+  <div class="stats" id="stats">載入中…</div>
+  <div class="spacer"></div>
+  <div class="refresh">
+    <span id="clock" title="上次更新時間">—</span>
+    <button id="btnRefresh" type="button">重新整理</button>
+  </div>
+  <button id="btnPanel" type="button" title="開關側欄">☰</button>
+</header>
+
+<div id="coordbox" title="滑鼠所在的經緯度">—</div>
+<div id="mapStatus"></div>
+
+<div id="pegman">
+  <div id="pegIcon" title="拖到地圖上放置小人">🧍</div>
+  <div class="hint">拖到地圖</div>
+  <div id="pegReset">移除小人</div>
+</div>
+
+<aside id="panel">
+  <section class="grp">
+    <h2>底圖</h2>
+    <div class="bmrow">
+      <button type="button" class="bm" data-bm="voyager">亮色</button>
+      <button type="button" class="bm" data-bm="light">極簡</button>
+      <button type="button" class="bm" data-bm="dark">暗色</button>
+      <button type="button" class="bm" data-bm="satellite">衛星</button>
+    </div>
+  </section>
+
+  <section class="grp">
+    <h2>S2 網格</h2>
+    <label><input type="checkbox" id="gridOn">顯示網格</label>
+    <select id="gridLevel"></select>
+    <div class="note">L14 決定道館生成，L17 每格最多一個補給站。</div>
+  </section>
+
+  <section class="grp">
+    <h2>圖層</h2>
+    <label><input type="checkbox" class="layer" value="gym" checked>
+      <img class="sw-img" src="img/gym_VALOR.png" alt="">道館 <b id="cGym">0</b></label>
+    <label><input type="checkbox" class="layer" value="stop" checked>
+      <span class="sw sw-stop"></span>補給站 <b id="cStop">0</b></label>
+    <label><input type="checkbox" class="layer" value="route" checked>
+      <span class="sw sw-route"></span>路線 <b id="cRoute">0</b></label>
+    <label><input type="checkbox" class="layer" value="power" checked>
+      <span class="sw sw-power"></span>能量點（極巨化） <b id="cPower">0</b></label>
+    <label><input type="checkbox" class="layer" value="event" checked>
+      <span class="sw sw-event"></span>Campfire 活動 <b id="cEvent">0</b></label>
+    <label><input type="checkbox" class="layer" value="border" checked>
+      <span class="sw sw-border"></span>區界</label>
+  </section>
+
+  <section class="grp">
+    <h2>道館陣營</h2>
+    <label><input type="checkbox" class="team" value="VALOR" checked>
+      <img class="sw-img" src="img/gym_VALOR.png" alt="">紅隊 <b id="tVALOR">0</b></label>
+    <label><input type="checkbox" class="team" value="MYSTIC" checked>
+      <img class="sw-img" src="img/gym_MYSTIC.png" alt="">藍隊 <b id="tMYSTIC">0</b></label>
+    <label><input type="checkbox" class="team" value="INSTINCT" checked>
+      <img class="sw-img" src="img/gym_INSTINCT.png" alt="">黃隊 <b id="tINSTINCT">0</b></label>
+    <label><input type="checkbox" class="team" value="NEUTRAL" checked>
+      <img class="sw-img" src="img/gym_NEUTRAL.png" alt="">無主 <b id="tNEUTRAL">0</b></label>
+    <label class="sub"><input type="checkbox" id="onlyRaid">
+      只顯示有團體戰的道館</label>
+    <label class="sub"><input type="checkbox" id="onlyMega">
+      <span class="sw sw-mega"></span>只顯示極致超級團體戰道館 <b id="cMega">0</b></label>
+  </section>
+
+  <section class="grp" id="raidGrp">
+    <h2>進行中的團體戰 <b id="cRaid">0</b></h2>
+    <div id="raidList" class="list"><div class="empty">目前沒有團體戰</div></div>
+  </section>
+
+  <section class="grp" id="powerGrp">
+    <h2>能量點 / Max Battle <b id="cPower2">0</b></h2>
+    <div id="powerList" class="list">
+      <div class="empty">目前沒有能量點。<b>能量點需要 Niantic token 才會回傳</b>，
+        請在下面的「Niantic Token」貼上你的 token。</div>
+    </div>
+  </section>
+
+  <section class="grp">
+    <h2>搜尋</h2>
+    <input type="search" id="q" placeholder="輸入名稱…（按 Enter 搜地址）" autocomplete="off">
+    <div id="qList" class="list"></div>
+  </section>
+
+  <section class="grp">
+    <h2>Niantic Token（選填）</h2>
+    <div id="tokenState" class="tokstate warn">未設定</div>
+    <div class="note" style="margin:0 0 6px">
+      今天帶 token 的請求：<b id="authCount">0</b> 次
+    </div>
+    <input type="password" id="tokenInput" placeholder="貼上 eyJ… 開頭的 token"
+           autocomplete="off" spellcheck="false">
+    <div class="bmrow2">
+      <button type="button" id="tokenSave">儲存</button>
+      <button type="button" id="tokenClear">清除</button>
+    </div>
+    <div class="note">
+      <b>只有「能量點（極巨化）」需要這個</b>，其他資料完全不帶它。<br>
+      建議用小帳的 token —— 它只用來讀資料，那個帳號不需要任何遊戲進度。<br>
+      取得方式：登入 <a href="https://pokemongo.com/zh-Hant/map" target="_blank"
+      rel="noopener">官方地圖</a> → F12 → Network → 點任一筆 <code>graphql</code>
+      → Request Headers → 複製 <code>Authorization</code> 後面 <code>Bearer </code> 的那一長串。<br>
+      有效期 7 天，過期再貼一次。<br>
+      <b>只存在你這台裝置的瀏覽器裡</b>，不會上傳、不會進 GitHub。
+      它等同你的帳號憑證，不要貼給別人。
+    </div>
+  </section>
+
+  <section class="grp small">
+    <div>資料來源：<span id="srcLabel">—</span></div>
+    <div>格數：<span id="cellCount">—</span> 個 level-14 S2 cell</div>
+    <div><span id="autoLabel">—</span>，每次約 3.3 MB</div>
+    <div><span id="powerLabel">—</span></div>
+    <div>手機吃行動網路時，網址加上
+      <code>?refresh=300</code> 可改成 5 分鐘更新</div>
+    <div id="log" class="log"></div>
+  </section>
+</aside>
+
+<div id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="s2geometry.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
