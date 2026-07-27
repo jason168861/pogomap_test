@@ -562,6 +562,12 @@ function openPopup(latlng, html) {
   sharedPopup.setLatLng(latlng).setContent(html).openOn(map);
 }
 
+// 照片載入失敗就把整個 <img> 藏起來
+function photoTag(url) {
+  return `<img class="photo" src="${esc(url)}" loading="lazy" alt=""
+               onerror="this.style.display='none'">`;
+}
+
 function coordFoot(it) {
   return `<div class="coord">${it.lat.toFixed(6)}, ${it.lng.toFixed(6)}</div>
     <a class="nav" target="_blank" rel="noopener"
@@ -571,14 +577,14 @@ function coordFoot(it) {
 function popupGym(it) {
   const t = TEAM[it.team] || TEAM.NEUTRAL;
   let h = `<div class="pop"><h3>${esc(it.n)}</h3>`;
-  if (it.img) h += `<img class="photo" src="${esc(it.img)}" loading="lazy" alt="">`;
+  if (it.img) h += photoTag(it.img);
   h += `<div class="meta"><span class="tag" style="background:${t.c}">${t.n}</span>`;
   if (it.megaRaid) h += ` <span class="tag" style="background:${C_MEGA}">極致超級團體戰</span>`;
   h += `</div>`;
   if (it.raid) {
     const r = it.raid, tier = raidTier(r.rating);
     h += `<div class="raid">`;
-    if (!r.egg && r.img) h += `<img src="${esc(r.img)}" alt="">`;
+    if (!r.egg && r.img) h += `<img src="${esc(r.img)}" alt="" onerror="this.style.display='none'">`;
     else h += `<div class="eggbig" style="background:${tier.c}">蛋</div>`;
     h += `<div><div class="n">${esc(r.egg ? '未孵化' : r.boss)}</div>`;
     h += `<div class="meta"><span class="tag" style="background:${tier.c}">${tier.t}</span></div>`;
@@ -594,7 +600,7 @@ function popupGym(it) {
 
 function popupStop(it) {
   let h = `<div class="pop"><h3>${esc(it.n)}</h3>`;
-  if (it.img) h += `<img class="photo" src="${esc(it.img)}" loading="lazy" alt="">`;
+  if (it.img) h += photoTag(it.img);
   if (it.d) h += `<div class="meta">${esc(it.d)}</div>`;
   return h + coordFoot(it) + `</div>`;
 }
@@ -606,7 +612,7 @@ function popupPower(it) {
   h += `<div class="meta"><span class="tag" style="background:${C_POWER}">能量點（極巨化）</span></div>`;
   if (it.boss) {
     h += `<div class="raid">`;
-    if (it.img) h += `<img src="${esc(it.img)}" alt="">`;
+    if (it.img) h += `<img src="${esc(it.img)}" alt="" onerror="this.style.display='none'">`;
     h += `<div><div class="n">${esc(it.boss)}</div>
           <div class="meta">${esc(it.rating || '')}</div>`;
     if (win) h += `<div class="c">開放 ${win}</div>`;
@@ -617,7 +623,7 @@ function popupPower(it) {
 
 function popupEvent(it) {
   let h = `<div class="pop"><h3>${esc(it.n)}</h3>`;
-  if (it.img) h += `<img class="photo" src="${esc(it.img)}" loading="lazy" alt="">`;
+  if (it.img) h += photoTag(it.img);
   h += `<div class="meta"><span class="tag" style="background:${C_EVENT}">Campfire 活動</span></div>`;
   if (it.addr) h += `<div class="meta">${esc(it.addr)}</div>`;
   return h + (it.lat != null ? coordFoot(it) : '') + `</div>`;
@@ -755,11 +761,37 @@ function render() {
 }
 
 /* ------------------------------------------------------------ 側欄清單 --- */
-function row(img, a, b, onclick) {
+// thumb 可以是：圖片網址字串 / {text, bg} 佔位物件 / 空值
+// 重點：沒有圖就「不要」產生 <img>。src="" 會被畫成一個空的灰框（很醜），
+// 而且部分瀏覽器還會把它當成一個請求。
+function thumbEl(t) {
+  const d = document.createElement('div');
+  d.className = 'ph';
+  if (t && t.text) {
+    d.textContent = t.text;
+    if (t.bg) { d.style.background = t.bg; d.style.color = '#fff'; }
+  }
+  return d;
+}
+
+function row(thumb, a, b, onclick) {
   const d = document.createElement('div');
   d.className = 'row';
-  d.innerHTML = `<img src="${esc(img || '')}" loading="lazy" alt="">` +
-    `<div class="t"><div class="a">${esc(a)}</div><div class="b">${esc(b)}</div></div>`;
+  let el;
+  if (typeof thumb === 'string' && thumb) {
+    el = document.createElement('img');
+    el.loading = 'lazy';
+    el.alt = '';
+    // 圖掛掉（404 / 被擋）就換成佔位，不要留破圖
+    el.addEventListener('error', () => el.replaceWith(thumbEl(null)), { once: true });
+    el.src = thumb;
+  } else {
+    el = thumbEl(thumb);
+  }
+  const t = document.createElement('div');
+  t.className = 't';
+  t.innerHTML = `<div class="a">${esc(a)}</div><div class="b">${esc(b)}</div>`;
+  d.append(el, t);
   d.addEventListener('click', onclick);
   return d;
 }
@@ -781,15 +813,8 @@ function renderRaidList(raids) {
     return (ka || 0) - (kb || 0);
   }).forEach(it => {
     const r = it.raid, tier = raidTier(r.rating);
-    const rowEl = row(r.egg ? '' : r.img, r.egg ? `${tier.t}蛋` : r.boss,
-      `${tier.t} · ${it.n}`, () => flyTo(it));
-    if (r.egg) {
-      const im = rowEl.querySelector('img');
-      im.replaceWith(Object.assign(document.createElement('div'), {
-        className: 'eggthumb', textContent: '蛋'
-      }));
-      rowEl.querySelector('.eggthumb').style.background = tier.c;
-    }
+    const rowEl = row(r.egg ? { text: '蛋', bg: tier.c } : (r.img || { text: '⚔' }),
+      r.egg ? `${tier.t}蛋` : r.boss, `${tier.t} · ${it.n}`, () => flyTo(it));
     const key = r.egg ? r.hatch : r.end;
     if (key) {
       const cd = document.createElement('div');
@@ -815,7 +840,7 @@ function renderPowerList(powers) {
   for (const it of powers) {
     const win = (it.s != null && it.e != null)
       ? `${utcMinutesToLocal(it.s)}–${utcMinutesToLocal(it.e)}` : '';
-    box.appendChild(row(it.img, it.boss || 'Max Battle',
+    box.appendChild(row(it.img || { text: '⚡', bg: C_POWER }, it.boss || 'Max Battle',
       (win ? win + ' · ' : '') + it.n, () => flyTo(it)));
   }
 }
@@ -1044,7 +1069,13 @@ function renderSearch(q) {
     return;
   }
   const LABEL = { gym: '道館', stop: '補給站', power: '能量點', event: '活動' };
-  for (const it of hits) box.appendChild(row(it.img, it.n, LABEL[it.k], () => flyTo(it)));
+  const FALLBACK = { stop: { text: '🔵' }, power: { text: '⚡', bg: C_POWER },
+                     event: { text: '🔥', bg: C_EVENT } };
+  for (const it of hits) {
+    const thumb = it.img ||
+      (it.k === 'gym' ? `img/gym_${it.team}.png` : FALLBACK[it.k]);
+    box.appendChild(row(thumb, it.n, LABEL[it.k], () => flyTo(it)));
+  }
 }
 
 // 按 Enter 搜地點：有 Google API key 就用 Google Places，否則退回 Nominatim
@@ -1137,7 +1168,8 @@ async function searchAddress(q) {
   hint.textContent = '結果來自 ' + via;
   box.appendChild(hint);
   for (const a of list) {
-    box.appendChild(row('', a.name, a.addr, () => gotoPlace(a.name, a.addr, a.lat, a.lng)));
+    box.appendChild(row({ text: '📍' }, a.name, a.addr,
+      () => gotoPlace(a.name, a.addr, a.lat, a.lng)));
   }
 }
 
