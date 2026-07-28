@@ -407,10 +407,23 @@ function mount() {
       sel.appendChild(o);
     }
   }).catch(() => { /* Worker 還是舊版就沒有這個端點，靜靜略過 */ });
+
+  // 寫進側欄最下面的 log。不用開 Console 就能確認這個模組到底有沒有跑起來。
+  log('分析模組已就緒（點道館看時間軸）');
+}
+
+// 例外要自己接：classic script 裡丟出去的錯誤只會進 Console，
+// 而使用者通常不會去看，結果就是「popup 一直顯示分析尚未載入」卻不知道為什麼。
+function safeMount() {
+  try { mount(); }
+  catch (err) {
+    if (typeof log === 'function') log('分析模組啟動失敗：' + err.message);
+    console.error('analysis.js mount 失敗:', err);
+  }
 }
 
 if (document.readyState === 'loading')
-  document.addEventListener('DOMContentLoaded', mount);
-else mount();
+  document.addEventListener('DOMContentLoaded', safeMount);
+else safeMount();
 
 })();
