@@ -557,11 +557,11 @@ function gymDivIcon(it) {
     }
   }
   if (it.megaRaid) html += `<i class="mega" title="極致超級團體戰"></i>`;
-  // iconSize 開到 44x44（圖示本身還是 28x29，四周多出來的是透明的可點擊範圍）。
-  // 手機的建議觸控目標是 44px，滑鼠也比較好瞄。
+  // iconSize 開到 58x58（圖示本身 36x38，四周多出來的是透明的可點擊範圍）。
+  // iconAnchor 的 y 對準道館圖示底部的尖端（8 + 38 = 46）。
   return L.divIcon({
     className: 'gm' + (it.raid ? ' has-raid' : ''),
-    html, iconSize: [44, 44], iconAnchor: [22, 35], popupAnchor: [0, -32]
+    html, iconSize: [58, 58], iconAnchor: [29, 46], popupAnchor: [0, -42]
   });
 }
 

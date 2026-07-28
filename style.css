@@ -86,18 +86,18 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;appeara
 /* ---- 地圖上的標記 ---- */
 /* 道館：染色過的道館圖示；有團體戰時多一圈脈動光暈和 boss 縮圖 */
 .gm{background:none;border:none;cursor:pointer}
-/* 圖示置中在 44x44 的可點擊方框裡，四周透明的部分一樣吃得到點擊 */
-.gm .gi{position:absolute;left:50%;top:50%;width:28px;height:29px;
-  margin:-16px 0 0 -14px;display:block;
+/* 圖示置中在 58x58 的可點擊方框裡，四周透明的部分一樣吃得到點擊 */
+.gm .gi{position:absolute;left:50%;top:50%;width:36px;height:38px;
+  margin:-21px 0 0 -18px;display:block;
   filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))}
 .gm:hover .gi{filter:drop-shadow(0 0 4px #fff) drop-shadow(0 1px 2px rgba(0,0,0,.5))}
-.gm .ring{position:absolute;left:50%;top:50%;width:34px;height:34px;margin:-19px 0 0 -17px;
+.gm .ring{position:absolute;left:50%;top:50%;width:44px;height:44px;margin:-24px 0 0 -22px;
   border:2.5px solid #16a34a;border-radius:50%;animation:pulse 1.8s ease-out infinite;
   pointer-events:none}
-.gm .gb{position:absolute;right:0;top:0;width:26px;height:26px;object-fit:contain;
+.gm .gb{position:absolute;right:0;top:0;width:34px;height:34px;object-fit:contain;
   background:#fff;border:2px solid #16a34a;border-radius:50%;
   box-shadow:0 1px 3px rgba(0,0,0,.5)}
-.gm .mega{position:absolute;left:6px;bottom:9px;width:8px;height:8px;border-radius:50%;
+.gm .mega{position:absolute;left:8px;bottom:12px;width:10px;height:10px;border-radius:50%;
   background:var(--mega);border:1.5px solid #fff;box-shadow:0 1px 2px rgba(0,0,0,.5)}
 @keyframes pulse{
   0%{transform:scale(.55);opacity:.95}
@@ -150,13 +150,14 @@ body.lightmap .leaflet-control-attribution a{color:#0369a1}
 #toast.show{opacity:1}
 
 
-/* 團體戰的蛋。圖檔本身四周留了透明邊給暗影光暈，所以框要比視覺尺寸再大一點。 */
-.gm .gegg{position:absolute;right:-2px;top:-2px;width:30px;height:30px;
+/* 團體戰的蛋。圖檔裡蛋只佔約 55%，其餘是給紫焰的透明留白，
+   所以 48px 的框裡蛋看起來大約 26px。 */
+.gm .gegg{position:absolute;right:-6px;top:-6px;width:48px;height:48px;
   object-fit:contain;pointer-events:none;
   filter:drop-shadow(0 1px 2px rgba(0,0,0,.55))}
 /* rating 是沒看過的值時的退路：舊的彩色圓點 */
-.gm .gegg-dot{position:absolute;right:0;top:0;width:24px;height:24px;border-radius:50%;
-  border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.5);font-size:12px;font-weight:700;
+.gm .gegg-dot{position:absolute;right:0;top:0;width:31px;height:31px;border-radius:50%;
+  border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.5);font-size:15px;font-weight:700;
   color:#fff;display:flex;align-items:center;justify-content:center;font-style:normal;
   line-height:1}
 .pop .raid .eggbig{width:42px;height:42px;flex:none;border-radius:8px;color:#fff;
