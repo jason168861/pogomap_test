@@ -94,7 +94,7 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;appeara
 .gm .ring{position:absolute;left:50%;top:50%;width:34px;height:34px;margin:-19px 0 0 -17px;
   border:2.5px solid #16a34a;border-radius:50%;animation:pulse 1.8s ease-out infinite;
   pointer-events:none}
-.gm .gb{position:absolute;right:2px;top:2px;width:22px;height:22px;object-fit:contain;
+.gm .gb{position:absolute;right:0;top:0;width:26px;height:26px;object-fit:contain;
   background:#fff;border:2px solid #16a34a;border-radius:50%;
   box-shadow:0 1px 3px rgba(0,0,0,.5)}
 .gm .mega{position:absolute;left:6px;bottom:9px;width:8px;height:8px;border-radius:50%;
@@ -150,9 +150,13 @@ body.lightmap .leaflet-control-attribution a{color:#0369a1}
 #toast.show{opacity:1}
 
 
-/* 團體戰的蛋 */
-.gm .gegg{position:absolute;right:2px;top:2px;width:20px;height:20px;border-radius:50%;
-  border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.5);font-size:11px;font-weight:700;
+/* 團體戰的蛋。圖檔本身四周留了透明邊給暗影光暈，所以框要比視覺尺寸再大一點。 */
+.gm .gegg{position:absolute;right:-2px;top:-2px;width:30px;height:30px;
+  object-fit:contain;pointer-events:none;
+  filter:drop-shadow(0 1px 2px rgba(0,0,0,.55))}
+/* rating 是沒看過的值時的退路：舊的彩色圓點 */
+.gm .gegg-dot{position:absolute;right:0;top:0;width:24px;height:24px;border-radius:50%;
+  border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.5);font-size:12px;font-weight:700;
   color:#fff;display:flex;align-items:center;justify-content:center;font-style:normal;
   line-height:1}
 .pop .raid .eggbig{width:42px;height:42px;flex:none;border-radius:8px;color:#fff;

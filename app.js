@@ -53,6 +53,21 @@ function raidTier(rating) {
   return { t: `${r} 星`, c: COL[r] || '#16a34a', shadow: false };
 }
 
+/* 未孵化的蛋圖示（img/ 底下，由 _make_egg_icons.py 從 APK 素材產生）。
+   暗影版是一般蛋套上紫色暗影光暈，星級靠蛋本身的顏色區分。 */
+const EGG_IMG = {
+  1: 'egg_1.png',  2: 'egg_1.png',          // 1 星（粉紅）
+  3: 'egg_3.png',  4: 'egg_3.png',          // 3 星（黃）
+  5: 'egg_5.png',                           // 5 星（藍紫）
+  6: 'egg_mega.png',                        // 超級
+  11: 'egg_s1.png', 12: 'egg_s1.png',       // 暗影 1 星
+  13: 'egg_s3.png', 14: 'egg_s3.png',       // 暗影 3 星
+  15: 'egg_s5.png'                          // 暗影 5 星
+};
+function eggImg(rating) {
+  return EGG_IMG[parseInt(rating, 10)] || null;
+}
+
 // 蛋 60 分鐘 + 開戰 45 分鐘 = 105 分鐘（實測所有團體戰的 start~end 都剛好 105 分）
 const RAID_EGG_MIN = 60, RAID_OPEN_MIN = 45;
 
@@ -529,10 +544,16 @@ function gymDivIcon(it) {
       html += `<img class="gb" src="${esc(it.raid.img)}" alt=""
                     style="border-color:${tier.c}">`;
     } else {
-      // 還是蛋：顯示星級，用顏色區分等級
-      const n = parseInt(it.raid.rating, 10);
-      const label = n === 6 ? 'M' : isNaN(n) ? '?' : (n >= 10 ? n - 10 : n);
-      html += `<i class="gegg" style="background:${tier.c}">${label}</i>`;
+      // 還是蛋：直接畫蛋的圖（暗影版自帶紫色光暈）
+      const f = eggImg(it.raid.rating);
+      if (f) {
+        html += `<img class="gegg" src="img/${f}" alt="" title="${esc(tier.t)}">`;
+      } else {
+        // rating 是沒看過的值 -> 退回舊的色塊，至少還看得出有蛋
+        const n = parseInt(it.raid.rating, 10);
+        const label = isNaN(n) ? '?' : (n >= 10 ? n - 10 : n);
+        html += `<i class="gegg-dot" style="background:${tier.c}">${label}</i>`;
+      }
     }
   }
   if (it.megaRaid) html += `<i class="mega" title="極致超級團體戰"></i>`;
