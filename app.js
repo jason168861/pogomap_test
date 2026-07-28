@@ -605,8 +605,10 @@ function popupGym(it) {
   if (it.raid) {
     const r = it.raid, tier = raidTier(r.rating);
     h += `<div class="raid">`;
+    const ef = r.egg ? eggImg(r.rating) : null;
     if (!r.egg && r.img) h += `<img src="${esc(r.img)}" alt="" onerror="this.style.display='none'">`;
-    else h += `<div class="eggbig" style="background:${tier.c}">蛋</div>`;
+    else if (ef) h += `<img class="eggbig" src="img/${ef}" alt="">`;
+    else h += `<div class="eggbig-dot" style="background:${tier.c}">蛋</div>`;
     h += `<div><div class="n">${esc(r.egg ? '未孵化' : r.boss)}</div>`;
     h += `<div class="meta"><span class="tag" style="background:${tier.c}">${tier.t}</span></div>`;
     if (r.egg && r.hatch) {
@@ -782,7 +784,7 @@ function render() {
 }
 
 /* ------------------------------------------------------------ 側欄清單 --- */
-// thumb 可以是：圖片網址字串 / {text, bg} 佔位物件 / 空值
+// thumb 可以是：圖片網址字串 / {img, egg} 本地蛋圖 / {text, bg} 佔位物件 / 空值
 // 重點：沒有圖就「不要」產生 <img>。src="" 會被畫成一個空的灰框（很醜），
 // 而且部分瀏覽器還會把它當成一個請求。
 function thumbEl(t) {
@@ -806,6 +808,12 @@ function row(thumb, a, b, onclick) {
     // 圖掛掉（404 / 被擋）就換成佔位，不要留破圖
     el.addEventListener('error', () => el.replaceWith(thumbEl(null)), { once: true });
     el.src = thumb;
+  } else if (thumb && thumb.img) {
+    // 本地的蛋圖：四周有透明留白，要 contain 不能 cover，不然會被裁掉
+    el = document.createElement('img');
+    el.alt = '';
+    if (thumb.egg) el.className = 'egg';
+    el.src = thumb.img;
   } else {
     el = thumbEl(thumb);
   }
@@ -834,8 +842,11 @@ function renderRaidList(raids) {
     return (ka || 0) - (kb || 0);
   }).forEach(it => {
     const r = it.raid, tier = raidTier(r.rating);
-    const rowEl = row(r.egg ? { text: '蛋', bg: tier.c } : (r.img || { text: '⚔' }),
-      r.egg ? `${tier.t}蛋` : r.boss, `${tier.t} · ${it.n}`, () => flyTo(it));
+    const ef = r.egg ? eggImg(r.rating) : null;
+    const thumb = r.egg ? (ef ? { img: 'img/' + ef, egg: true } : { text: '蛋', bg: tier.c })
+                        : (r.img || { text: '⚔' });
+    const rowEl = row(thumb, r.egg ? `${tier.t}蛋` : r.boss, `${tier.t} · ${it.n}`,
+      () => flyTo(it));
     const key = r.egg ? r.hatch : r.end;
     if (key) {
       const cd = document.createElement('div');
