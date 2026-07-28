@@ -793,6 +793,12 @@ function render(withPanel = true) {
 
   if (f.layer.has('border')) map.addLayer(layers.border); else map.removeLayer(layers.border);
 
+  // 畫面上團體戰太多就停掉脈動動畫（見 config 的 maxPulseRings）。
+  // 用 body class 一次切換全部，不用重建任何 marker。
+  let ringCount = 0;
+  for (const it of want.gym.values()) if (it.raid) ringCount++;
+  document.body.classList.toggle('nopulse', ringCount > CFG.maxPulseRings);
+
   // 這行跟縮放有關（縮太遠時要提示），所以移動地圖也要更新
   $('#stats').innerHTML =
     `<b>${counts.stop.toLocaleString()}</b> 補給站 · <b>${counts.gym.toLocaleString()}</b> 道館 · ` +
@@ -915,12 +921,24 @@ function renderPowerList(powers) {
 }
 
 function tickCountdowns() {
-  for (const el of document.querySelectorAll('[data-cd]')) {
-    const end = +el.dataset.cd;
-    const pre = el.dataset.pre || '';
-    el.textContent = (end - Date.now() <= 0)
-      ? (pre ? pre + '已到' : '已結束')
-      : pre + countdown(end);
+  // 側欄收起來時（手機預設就是收起來的）它只是被 translateX 移出畫面，DOM 還活著。
+  // 每秒往幾百個看不到的元素寫 textContent 是純浪費，所以收起來就整段跳過。
+  // 地圖上開著的 popup 一定要更新，那個使用者看得到。
+  const roots = [];
+  const panel = $('#panel');
+  if (!panel.classList.contains('hidden')) roots.push(panel);
+  const pop = document.querySelector('.leaflet-popup-pane');
+  if (pop) roots.push(pop);
+
+  const now = Date.now();
+  for (const root of roots) {
+    for (const el of root.querySelectorAll('[data-cd]')) {
+      const end = +el.dataset.cd;
+      const pre = el.dataset.pre || '';
+      el.textContent = (end - now <= 0)
+        ? (pre ? pre + '已到' : '已結束')
+        : pre + countdown(end);
+    }
   }
 }
 setInterval(tickCountdowns, 1000);
