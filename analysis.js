@@ -337,24 +337,34 @@ async function load(date) {
 //
 // 用 app.js 明確呼叫的 window.onPopupOpened，而不是 map 的 'popupopen' 事件 ——
 // 整個網站共用同一個 popup 物件，那個事件只有第一次開啟會觸發。
+function fillGymana(el, popup) {
+  if (!el || !el.dataset.id) return;
+  const id = el.dataset.id;
+  const fill = () => {
+    // 填之前再確認一次：使用者可能已經點去別的道館了
+    if (el.dataset.id !== id || !el.isConnected) return;
+    el.innerHTML = gymPanelHtml(id);
+    if (popup && popup.update) popup.update();   // 內容變高了，讓 Leaflet 重新定位
+  };
+  if (A.events && Date.now() - A.histAt < HIST_TTL) { fill(); return; }
+  el.innerHTML = '<div class="gahead">載入變化紀錄…</div>';
+  ensureHistory().then(fill);
+}
+
 function hookPopup() {
   window.onPopupOpened = popup => {
     const root = popup && popup.getElement && popup.getElement();
-    if (!root) return;
-    const el = root.querySelector('.gymana');
-    if (!el || !el.dataset.id) return;
-
-    const id = el.dataset.id;
-    const fill = () => {
-      // 填之前再確認一次：使用者可能已經點去別的道館了
-      if (el.dataset.id !== id || !el.isConnected) return;
-      el.innerHTML = gymPanelHtml(id);
-      if (popup.update) popup.update();     // 內容變高了，讓 Leaflet 重新定位
-    };
-    if (A.events && Date.now() - A.histAt < HIST_TTL) { fill(); return; }
-    el.innerHTML = '<div class="gahead">載入變化紀錄…</div>';
-    ensureHistory().then(fill);
+    if (root) fillGymana(root.querySelector('.gymana'), popup);
   };
+
+  // 備援：萬一有哪條路徑不是走 app.js 的 openPopup()，Leaflet 自己的事件也接一次。
+  // 兩邊都跑到也無所謂 —— fillGymana 是冪等的，重跑只是再畫一次相同的內容。
+  if (typeof map !== 'undefined' && map.on) {
+    map.on('popupopen', ev => {
+      const root = ev.popup && ev.popup.getElement && ev.popup.getElement();
+      if (root) fillGymana(root.querySelector('.gymana'), ev.popup);
+    });
+  }
 }
 
 /* --------------------------------------------------------------- UI --- */

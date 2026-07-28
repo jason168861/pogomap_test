@@ -734,7 +734,11 @@ function popupGym(it) {
   if (hold) h += `<div class="hold">${t.n}${hold}<span class="since">（${hhmm(it.since)} 起）</span></div>`;
   // 當天的顏色變化時間軸。內容由 analysis.js 在 popup 開啟時填進去
   // （它要先去 Worker 拿當天的變化紀錄，這裡是同步產生 HTML 的，來不及等）。
-  if (CFG.source !== 'direct') h += `<div class="gymana" data-id="${esc(it.id)}"></div>`;
+  // 預設文字不是裝飾：如果 analysis.js 沒載到（例如瀏覽器吃到舊快取），
+  // 這行會一直留著，一眼就知道是哪裡壞了，而不是看到一片空白。
+  if (CFG.source !== 'direct')
+    h += `<div class="gymana" data-id="${esc(it.id)}">
+            <div class="gahead">分析尚未載入（analysis.js 沒有接手）</div></div>`;
   if (it.raid) {
     const r = it.raid, tier = raidTier(r.rating);
     h += `<div class="raid">`;

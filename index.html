@@ -7,7 +7,9 @@
 <title>桃園四區地圖 — 蘆竹 / 大園 / 桃園 / 中壢</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-<link rel="stylesheet" href="style.css">
+<!-- ?v= 是快取破壞用的。GitHub Pages 送 Cache-Control: max-age=600，
+     改完推上去馬上重整會拿到舊檔 —— 改動 JS/CSS 時把版本號加一。 -->
+<link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
 
@@ -178,10 +180,10 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-<script src="s2geometry.js"></script>
-<script src="config.js"></script>
-<script src="app.js"></script>
+<script src="s2geometry.js?v=3"></script>
+<script src="config.js?v=3"></script>
+<script src="app.js?v=3"></script>
 <!-- 分析面板。要用到 app.js 裡的 TEAM / state / $ / esc / dur，所以一定要放在它後面 -->
-<script src="analysis.js"></script>
+<script src="analysis.js?v=3"></script>
 </body>
 </html>
