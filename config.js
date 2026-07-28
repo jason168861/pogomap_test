@@ -5,13 +5,18 @@ window.APP_CONFIG = {
 
   // 資料來源：
   //   'direct' = 瀏覽器直接跟 Niantic 要（不用任何後端，GitHub Pages 直接就能動）
-  //   網址字串 = 跟你的 Cloudflare Worker 要快照，例如：
-  //              'https://taoyuan-map.你的帳號.workers.dev/data'
+  //              每次 5 個請求、約 3.3 MB，全部由這台裝置下載。
+  //   網址字串 = 跟你的 Cloudflare Worker 要，例如：
+  //              'https://taoyuan-map.你的帳號.workers.dev'
+  //              Worker 每 2 分鐘在雲端更新一次，這台裝置每次只下載約 70 KB
+  //              的道館狀態（名稱/座標/補給站是靜態的，只會下載一次）。
+  //              部署步驟看 worker/README-R2.md。
   source: 'direct',
 
   // 一般資料的更新間隔（秒）。0 = 不自動更新。
-  // 這一趟「不帶 token」，抓道館 / 補給站 / 團體戰 / 活動。
-  // 每次 5 個請求約 3.3 MB，120 秒約等於 100 MB/小時。
+  // direct 模式：這一趟不帶 token，抓道館 / 補給站 / 團體戰 / 活動，
+  //             每次約 3.3 MB，120 秒約等於 100 MB/小時。
+  // Worker 模式：每次只下載 /state（約 70 KB），120 秒約 2 MB/小時。
   // 網址加 ?refresh=300 可以臨時改成 5 分鐘（手機吃行動網路時好用）。
   refreshSec: 120,
 

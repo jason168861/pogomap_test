@@ -210,7 +210,13 @@ const state = {
   powerRound: 0,      // 用來決定第幾輪要做全區完整掃描
   lastUpdate: 0, lastPowerUpdate: 0,
   loading: false, loadingPower: false,
-  timer: null, powerTimer: null, renderPending: null
+  timer: null, powerTimer: null, renderPending: null,
+
+  // ---- 只有 Worker 模式會用到 ----
+  // 道館的名稱/座標/圖片和補給站都是靜態的，沒必要每 2 分鐘重抓，
+  // 所以留在記憶體裡，只有過期才重新下載。
+  wGyms: null, wGymsAt: 0,      // Worker /gyms（每天更新一次）
+  wStops: null, wStopsAt: 0     // Worker /stops（幾個月才變一次）
 };
 
 /* -------------------------------------------- 帶 token 的請求用量統計 --- */
@@ -392,12 +398,90 @@ async function fetchDirect(cells, query, dropTypes, withAuth, onProgress) {
   return [...byId.values()];
 }
 
-async function fetchFromWorker(url) {
-  const res = await fetch(url, { cache: 'no-store' });
-  if (!res.ok) throw new Error('Worker HTTP ' + res.status);
-  const js = await res.json();
-  state.lastUpdate = js.t || Date.now();
-  return js.items || [];
+/* ---- Worker 模式 --------------------------------------------------------
+   Worker 把資料切成三塊，各自用不同頻率更新，這裡負責在瀏覽器合併起來：
+
+     /state   每 2 分鐘   道館的隊伍與團體戰   約 70 KB 純文字
+     /gyms    每天一次    道館名稱/座標/圖片   約 346 KB
+     /stops   幾個月一次  補給站與活動         約 2.4 MB
+
+   會這樣切，是因為 Cloudflare 免費方案每次呼叫只有 10ms CPU。
+   量過：把補給站那 3.25 MB 一起處理要 18.6ms，一定爆；只處理道館的動態
+   欄位是 2.46ms。所以「每 2 分鐘只下載會變的東西」不只是省流量，
+   而是這整套能不能跑在免費方案上的前提。
+------------------------------------------------------------------------- */
+const TEAM_FROM_CODE = { V: 'VALOR', M: 'MYSTIC', I: 'INSTINCT', N: 'NEUTRAL' };
+
+// CFG.source 舊版是指向 /data，新版只要基底網址，兩種寫法都吃
+function workerBase() {
+  return String(CFG.source).replace(/\/+$/, '').replace(/\/data$/, '');
+}
+
+async function getJson(url) {
+  const res = await fetch(url);       // 讓瀏覽器照 Cache-Control 快取
+  if (!res.ok) throw new Error(url.split('/').pop() + ' HTTP ' + res.status);
+  return res.json();
+}
+
+async function fetchFromWorker() {
+  const base = workerBase();
+  const now = Date.now();
+
+  if (!state.wGyms || now - state.wGymsAt > 30 * 60000) {
+    state.wGyms = (await getJson(base + '/gyms')).items || [];
+    state.wGymsAt = now;
+  }
+  if (!state.wStops || now - state.wStopsAt > 6 * 3600000) {
+    try {
+      state.wStops = (await getJson(base + '/stops')).items || [];
+      state.wStopsAt = now;
+    } catch (err) {
+      // 補給站是選用的（要自己跑 local/make_static.py 上傳），沒有也能看道館
+      state.wStops = state.wStops || [];
+      log('補給站靜態檔還沒上傳到 R2：' + err.message);
+    }
+  }
+
+  const res = await fetch(base + '/state', { cache: 'no-store' });
+  if (!res.ok) throw new Error('state HTTP ' + res.status);
+  const text = await res.text();
+
+  // 第一行是 JSON 表頭，其餘每行一個道館：id|隊伍|頭目|開始ms|結束ms|星等
+  const nl = text.indexOf('\n');
+  const head = JSON.parse(text.slice(0, nl < 0 ? text.length : nl));
+  state.lastUpdate = head.t || Date.now();
+  const bosses = head.bosses || {};     // 頭目圖片對照表，只有十來種，不必每行重複
+
+  const dyn = new Map();
+  const lines = text.split('\n');
+  for (let i = 1; i < lines.length; i++) {
+    const p = lines[i].split('|');
+    if (p.length >= 6) dyn.set(p[0], p);
+  }
+
+  const out = [];
+  for (const g of state.wGyms) {
+    const it = {
+      k: 'gym', id: g.id, lat: g.lat, lng: g.lng, n: g.n, img: g.img,
+      team: 'NEUTRAL', megaRaid: !!g.megaRaid
+    };
+    const p = dyn.get(g.id);
+    if (p) {
+      it.team = TEAM_FROM_CODE[p[1]] || 'NEUTRAL';
+      if (p[4]) {                       // 有結束時間 = 有團體戰
+        const boss = p[2] || '', end = +p[4] || null;
+        it.raid = {
+          boss, img: bosses[boss] || '',
+          start: +p[3] || null, end, rating: p[5] || '',
+          // bossName 空的 = 還沒孵化。孵化時間 = 結束時間往前推 45 分鐘
+          egg: !boss, hatch: end ? end - RAID_OPEN_MIN * 60000 : null
+        };
+      }
+    }
+    out.push(it);
+  }
+  // 上一次每日靜態更新之後才出現的新道館會漏掉，等隔天那輪補上
+  return out.concat(state.wStops || []);
 }
 
 function mergeItems() {
@@ -424,10 +508,9 @@ async function refreshPublic() {
       state.lastUpdate = Date.now();
     } else {
       $('#stats').textContent = '從 Worker 讀取中…';
-      const items = await fetchFromWorker(CFG.source);
-      state.pub = items.filter(i => i.k !== 'power');
-      state.power = items.filter(i => i.k === 'power');
-      state.lastPowerUpdate = state.lastUpdate;
+      // Worker 只負責道館和補給站；能量點仍然由瀏覽器自己帶 token 去抓
+      // （那份需要登入，而且 Worker 免費方案的 CPU 也不夠處理）
+      state.pub = await fetchFromWorker();
     }
     mergeItems(); render();
     log(`一般資料更新完成 ${((performance.now() - t0) / 1000).toFixed(1)}s，${state.pub.length} 個物件`);
@@ -449,7 +532,8 @@ function powerLayerOn() {
 }
 
 async function refreshPower(force) {
-  if (CFG.source !== 'direct') return;      // Worker 模式由 Worker 那邊負責
+  // Worker 模式下也照跑：能量點需要 token，那是瀏覽器自己的事，
+  // 而且 Worker 免費方案的 10ms CPU 不夠再多處理一份資料。
   if (state.loadingPower) return;
   if (!getToken()) return;
   if (!force && !powerLayerOn()) return;
@@ -1385,15 +1469,14 @@ map.on('moveend zoomend', () => { scheduleRender(false); drawGrid(); });
     ? `能量點每 ${CFG.powerRefreshSec} 秒（帶 token）` : '能量點自動更新已關閉';
   $('#srcLabel').textContent = CFG.source === 'direct' ? '瀏覽器直接抓 Niantic' : 'Cloudflare Worker';
 
-  if (CFG.source === 'direct') {
-    try {
-      state.cells = await (await fetch('data/cells.json')).json();
-      $('#cellCount').textContent = state.cells.length.toLocaleString();
-    } catch (e) {
-      toast('cells.json 載入失敗'); log('cells.json 載入失敗: ' + e.message); return;
-    }
-  } else {
-    $('#cellCount').textContent = '（由 Worker 負責）';
+  // 兩種模式都要載：Worker 模式雖然不用它抓道館，但畫 S2 網格、
+  // 以及瀏覽器自己抓能量點（那份 Worker 不做）都需要格子清單。檔案只有 19 KB。
+  try {
+    state.cells = await (await fetch('data/cells.json')).json();
+    $('#cellCount').textContent = state.cells.length.toLocaleString() +
+      (CFG.source === 'direct' ? '' : '（道館由 Worker 抓）');
+  } catch (e) {
+    toast('cells.json 載入失敗'); log('cells.json 載入失敗: ' + e.message); return;
   }
 
   await refreshPublic();
