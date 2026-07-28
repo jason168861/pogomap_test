@@ -28,7 +28,9 @@ button:disabled{opacity:.5;cursor:default}
 #btnPanel{padding:5px 9px;font-size:15px;line-height:1}
 
 /* ---- 側欄 ---- */
-#panel{position:absolute;top:var(--topbar-h);right:0;bottom:0;width:320px;z-index:999;
+/* z-index 要壓過 Leaflet 的控制項（.leaflet-top/.leaflet-bottom 預設是 1000）。
+   手機版側欄是整頁的抽屜，999 的話縮放鈕和定位鈕會浮在側欄上面擋住內容。 */
+#panel{position:absolute;top:var(--topbar-h);right:0;bottom:0;width:320px;z-index:1001;
   background:var(--panel);border-left:1px solid var(--line);overflow-y:auto;padding:12px;
   transition:transform .18s ease}
 #panel.hidden{transform:translateX(100%)}
@@ -261,15 +263,18 @@ body.lightmap .leaflet-control-attribution a{color:#0369a1}
 .band{width:100%;display:block;border-radius:3px}
 .bandax{display:flex;justify-content:space-between;font-size:9px;color:var(--dim);
   margin:2px 0 6px;font-variant-numeric:tabular-nums}
-.astrip{padding:4px 3px;border-radius:5px}
-.astrip .atop{display:flex;align-items:baseline;gap:7px;font-size:11px;margin-bottom:2px}
-.astrip .atop .an{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.astrip .atop b{color:var(--dim);font-weight:600;flex:none}
-.apick{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;margin:8px 0 5px}
-.apick .an{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.mini{padding:2px 8px;font-size:11px;flex:none}
-.alist{max-height:190px;overflow-y:auto;margin-top:6px}
-#anaQ{width:100%;margin-bottom:6px}
+/* 道館 popup 裡的當天顏色變化 */
+.gymana{margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
+.gymana .gahead{font-size:11px;color:var(--dim);margin-bottom:4px}
+.gymana .gahead b{color:var(--fg)}
+.gymana .bandax{margin:2px 0 5px}
+.galeg{display:flex;flex-wrap:wrap;gap:2px 10px;font-size:11px;color:var(--dim)}
+.galeg i{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:4px}
+.galist{margin-top:5px;font-size:11px;color:var(--dim);line-height:1.85;
+  max-height:120px;overflow-y:auto}
+.galist .at{font-variant-numeric:tabular-nums;margin-right:4px}
+.galist .adot{display:inline-block;vertical-align:middle;margin:0 1px}
+.gymana .more{font-size:10px;color:#5f6b78;margin-top:3px}
 
 /* 團體戰星數篩選 */
 .tiers{display:grid;grid-template-columns:1fr 1fr;gap:0 8px}

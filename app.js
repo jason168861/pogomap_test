@@ -727,6 +727,9 @@ function popupGym(it) {
   h += `</div>`;
   const hold = holdText(it);
   if (hold) h += `<div class="hold">${t.n}${hold}<span class="since">（${hhmm(it.since)} 起）</span></div>`;
+  // 當天的顏色變化時間軸。內容由 analysis.js 在 popup 開啟時填進去
+  // （它要先去 Worker 拿當天的變化紀錄，這裡是同步產生 HTML 的，來不及等）。
+  if (CFG.source !== 'direct') h += `<div class="gymana" data-id="${esc(it.id)}"></div>`;
   if (it.raid) {
     const r = it.raid, tier = raidTier(r.rating);
     h += `<div class="raid">`;

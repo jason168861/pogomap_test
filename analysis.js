@@ -28,11 +28,13 @@ const tname = c => (TEAM[TEAM_KEY[c]] || TEAM.NEUTRAL).n;
 const DAY = 86400000;
 const SW = 320;          // SVG viewBox 寬度，實際寬度由 CSS 撐滿側欄
 
+const HIST_TTL = 180000;   // 當天的變化紀錄快取多久（毫秒）
+
 const A = {
   date: null, events: null, stats: null, loading: false,
   byGym: new Map(),      // 道館 id -> 當天的易主事件（已排序）
-  pick: null,            // 目前選中的道館 id
-  q: ''                  // 搜尋字串
+  histAt: 0,             // 上次抓 /history 的時間
+  histPending: null      // 進行中的請求，避免連點好幾個道館時重複抓
 };
 
 function today() {
@@ -199,74 +201,47 @@ function gymItem(id) {
   return state.pub.find(x => x.k === 'gym' && x.id === id) || null;
 }
 
-function sectionDetail() {
-  let h = `<h3 class="ah">道館時間軸<span>${A.date}</span></h3>
-    <input type="search" id="anaQ" placeholder="搜尋道館名稱…" value="${esc(A.q)}"
-           autocomplete="off">`;
-
-  // 搜尋中：列出符合的道館讓使用者挑
-  if (A.q) {
-    const q = A.q.toLowerCase();
-    const hits = (state.wGyms || []).filter(g => g.n.toLowerCase().includes(q)).slice(0, 12);
-    h += hits.length
-      ? hits.map(g => `<div class="arow pick" data-id="${esc(g.id)}">
-           <span class="an">${esc(g.n)}</span>
-           <b>${(A.byGym.get(g.id) || []).length} 次</b></div>`).join('')
-      : '<div class="empty">找不到符合的道館。</div>';
-  }
-
-  if (!A.pick) {
-    if (!A.q) h += '<div class="empty">搜尋道館名稱，或點下面清單裡的任一個。</div>';
-    return h;
-  }
-
-  const it = gymItem(A.pick);
-  const segs = timelineFor(A.pick, it && it.team);
-  const evs = A.byGym.get(A.pick) || [];
-
-  h += `<div class="apick"><span class="an">${esc(gymName(A.pick))}</span>` +
-       (it ? `<button type="button" class="mini" id="anaFly">定位 ↗</button>` : '') + `</div>`;
+/* 單一道館的分析。這段會塞進地圖上那個道館的 popup 裡 ——
+   點哪個道館就看哪個，不用先在側欄翻一長串清單。 */
+function gymPanelHtml(id) {
+  const it = gymItem(id);
+  const segs = timelineFor(id, it && it.team);
+  const evs = A.byGym.get(id) || [];
+  const label = A.date === today() ? '今天' : A.date;
 
   if (!segs.length) {
-    h += `<div class="empty">${A.date} 這個道館沒有易主紀錄，也無法推定當天的顏色。</div>`;
-    return h;
+    return `<div class="gahead">${label}沒有易主紀錄</div>`;
   }
 
-  h += band(segs, 22) + HOUR_AXIS;
+  let h = `<div class="gahead">${label}的顏色變化 · 易主 <b>${evs.length}</b> 次</div>`;
+  h += band(segs, 16) + HOUR_AXIS;
 
   const tot = segTotals(segs);
-  h += '<div class="alegend">' + ORDER.filter(c => tot[c] > 0).map(c =>
-    `<span><i style="background:${col(c)}"></i>${tname(c)} ${dur(tot[c])}</span>`).join('') +
-    `</div><div class="asum">當天易主 <b>${evs.length}</b> 次</div>`;
+  h += '<div class="galeg">' + ORDER.filter(c => tot[c] > 0).map(c =>
+    `<span><i style="background:${col(c)}"></i>${tname(c)} ${dur(tot[c])}</span>`).join('') + '</div>';
 
-  if (segs.some(s => s.guess)) {
-    h += `<div class="note">半透明的區段是推定的——當天第一次易主之前的顏色，
-          只能從那筆事件的「被誰搶走」反推。</div>`;
-  }
-
-  // 逐筆事件，最新的在上面
   if (evs.length) {
-    h += '<div class="alist">' + evs.slice().reverse().map(e =>
-      `<div class="arow"><span class="at">${hhmm(e.at)}</span>
-       <i class="adot" style="background:${col(e.from)}"></i>→
-       <i class="adot" style="background:${col(e.to)}"></i>
-       <span class="an">${tname(e.from)} → ${tname(e.to)}</span></div>`).join('') + '</div>';
+    h += '<div class="galist">' + evs.slice(-6).reverse().map(e =>
+      `<div><span class="at">${hhmm(e.at)}</span>
+        <i class="adot" style="background:${col(e.from)}"></i>→<i class="adot"
+        style="background:${col(e.to)}"></i> ${tname(e.from)} → ${tname(e.to)}</div>`).join('') +
+      (evs.length > 6 ? `<div class="more">…共 ${evs.length} 次</div>` : '') + '</div>';
   }
+  if (segs.some(s => s.guess)) h += '<div class="more">半透明＝推定的區段</div>';
   return h;
 }
 
-function sectionOverview() {
-  const ranked = [...A.byGym.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, 15);
+// 側欄只留一個「哪些道館值得看」的入口，點一下跳到地圖並打開它的 popup
+function sectionTop() {
+  const ranked = [...A.byGym.entries()]
+    .sort((a, b) => b[1].length - a[1].length).slice(0, 12);
   if (!ranked.length) return '';
-  let h = `<h3 class="ah">各道館的時段佔據<span>易主最多的 ${ranked.length} 個</span></h3>`;
+  let h = `<h3 class="ah">易主最頻繁<span>點一下跳到地圖</span></h3>`;
   for (const [id, evs] of ranked) {
-    const it = gymItem(id);
-    h += `<div class="astrip pick" data-id="${esc(id)}">
-            <div class="atop"><span class="an">${esc(gymName(id))}</span><b>${evs.length} 次</b></div>
-            ${band(timelineFor(id, it && it.team), 12)}
-          </div>`;
+    h += `<div class="arow gofly" data-id="${esc(id)}">
+            <span class="an">${esc(gymName(id))}</span><b>${evs.length} 次</b></div>`;
   }
-  return h + HOUR_AXIS;
+  return h;
 }
 
 /* ------------------------------------------------------------- 繪製 --- */
@@ -290,8 +265,9 @@ function render() {
           <span>·</span> ${raidN} 次團體戰異動</div>`;
   }
 
-  h += sectionDetail();
-  h += sectionOverview();
+  h += `<div class="note">單一道館的分析在地圖上——<b>點任何一個道館</b>，
+        它的資訊視窗裡就會有當天的顏色變化時間軸。</div>`;
+  h += sectionTop();
 
   if (hourly.total) h += `<h3 class="ah">全區每小時易主<span>顏色＝被誰搶走</span></h3>${hourly.svg}`;
   if (A.stats && A.stats.length >= 2) {
@@ -303,25 +279,39 @@ function render() {
 }
 
 function wire() {
-  const q = $('#anaQ');
-  if (q) {
-    q.addEventListener('input', e => {
-      A.q = e.target.value;
-      const pos = e.target.selectionStart;
-      render();
-      const nq = $('#anaQ');
-      if (nq) { nq.focus(); nq.setSelectionRange(pos, pos); }
+  for (const el of document.querySelectorAll('#anaBody .gofly')) {
+    el.addEventListener('click', () => {
+      const it = gymItem(el.dataset.id);
+      if (!it) return;
+      flyTo(it);
+      map.once('moveend', () => openPopup([it.lat, it.lng], popupFor(it)));
     });
   }
-  for (const el of document.querySelectorAll('#anaBody .pick')) {
-    el.addEventListener('click', () => { A.pick = el.dataset.id; A.q = ''; render(); });
+}
+
+function setEvents(ev) {
+  A.events = ev;
+  A.byGym = new Map();
+  for (const e of ev) {
+    if (e.t !== 'team') continue;
+    if (!A.byGym.has(e.id)) A.byGym.set(e.id, []);
+    A.byGym.get(e.id).push(e);
   }
-  const fly = $('#anaFly');
-  if (fly) fly.addEventListener('click', ev => {
-    ev.stopPropagation();
-    const it = gymItem(A.pick);
-    if (it) flyTo(it);
-  });
+  for (const list of A.byGym.values()) list.sort((a, b) => a.at - b.at);
+  A.histAt = Date.now();
+}
+
+// 確保手上有當天的變化紀錄。popup 每次開啟都會呼叫，所以要有快取和去重：
+// 連點五個道館只會抓一次，而且 3 分鐘內不重抓。
+function ensureHistory() {
+  if (A.events && Date.now() - A.histAt < HIST_TTL) return Promise.resolve();
+  if (A.histPending) return A.histPending;
+  A.date = A.date || today();
+  A.histPending = getJ('/history?date=' + A.date)
+    .then(ev => { setEvents(ev); })
+    .catch(e => { log('分析：' + e.message); if (!A.events) setEvents([]); })
+    .finally(() => { A.histPending = null; });
+  return A.histPending;
 }
 
 async function load(date) {
@@ -332,27 +322,41 @@ async function load(date) {
       getJ('/history?date=' + A.date).catch(e => { log('分析：' + e.message); return []; }),
       getJ('/stats?date=' + A.date).catch(() => [])
     ]);
-    A.events = ev; A.stats = st;
-
-    // 依道館分組，方便畫每一條時間軸
-    A.byGym = new Map();
-    for (const e of ev) {
-      if (e.t !== 'team') continue;
-      if (!A.byGym.has(e.id)) A.byGym.set(e.id, []);
-      A.byGym.get(e.id).push(e);
-    }
-    for (const list of A.byGym.values()) list.sort((a, b) => a.at - b.at);
+    setEvents(ev); A.stats = st;
   } catch (err) {
     toast('分析資料載入失敗：' + err.message);
-    A.events = A.events || [];
+    if (!A.events) setEvents([]);
   } finally {
     A.loading = false; render();
   }
 }
 
+/* ------------------------------------------------- 掛進道館的 popup --- */
+// app.js 的 popupGym 會留一個空的 .gymana 容器（它是同步產 HTML 的，
+// 來不及等網路），這裡在 popup 開啟後把內容補進去。
+function hookPopup() {
+  if (typeof map === 'undefined' || !map.on) return;
+  map.on('popupopen', ev => {
+    const root = ev.popup.getElement && ev.popup.getElement();
+    if (!root) return;
+    const el = root.querySelector('.gymana');
+    if (!el || !el.dataset.id) return;
+
+    const fill = () => {
+      el.innerHTML = gymPanelHtml(el.dataset.id);
+      ev.popup.update();          // 內容變高了，讓 Leaflet 重新定位
+    };
+    if (A.events && Date.now() - A.histAt < HIST_TTL) { fill(); return; }
+    el.innerHTML = '<div class="gahead">載入變化紀錄…</div>';
+    ensureHistory().then(fill);
+  });
+}
+
 /* --------------------------------------------------------------- UI --- */
 function mount() {
   if (CFG.source === 'direct') return;      // direct 模式沒有 Worker，也就沒有歷史
+
+  hookPopup();
 
   const panel = document.querySelector('#panel');
   const anchor = document.querySelector('#searchGrp');
