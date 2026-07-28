@@ -72,6 +72,18 @@ function eggImg(rating) {
   return EGG_IMG[parseInt(rating, 10)] || null;
 }
 
+/* 把 rating 收斂成側欄篩選用的「級別代號」。
+   rating 實測是 1~6 和 11~15，但同一個星級會有相鄰的兩個值
+   （例如 1 星有 1 和 2），所以這裡把它們併成同一組，
+   對應 index.html 裡 .tier 那七個核取方塊的 value。 */
+function tierKey(rating) {
+  const r = parseInt(rating, 10);
+  if (isNaN(r)) return 'other';
+  if (r === 6) return 'mega';
+  if (r >= 10) { const s = r - 10; return 's' + (s <= 2 ? 1 : s <= 4 ? 3 : 5); }
+  return String(r <= 2 ? 1 : r <= 4 ? 3 : 5);
+}
+
 // 蛋 60 分鐘 + 開戰 45 分鐘 = 105 分鐘（實測所有團體戰的 start~end 都剛好 105 分）
 const RAID_EGG_MIN = 60, RAID_OPEN_MIN = 45;
 
@@ -791,8 +803,9 @@ function syncLayer(kind, wanted, makeMarker, sigOf) {
 function filters() {
   const on = sel => new Set([...document.querySelectorAll(sel + ':checked')].map(e => e.value));
   return {
-    layer: on('.layer'), team: on('.team'),
-    onlyRaid: $('#onlyRaid').checked, onlyMega: $('#onlyMega').checked
+    layer: on('.layer'), team: on('.team'), tier: on('.tier'),
+    onlyRaid: $('#onlyRaid').checked, onlyMega: $('#onlyMega').checked,
+    onlyEgg: $('#onlyEgg').checked
   };
 }
 
@@ -824,7 +837,9 @@ function render(withPanel = true) {
   const inView = it => !tooFar && it.lat != null &&
     it.lat <= vN && it.lat >= vS && it.lng <= vE && it.lng >= vW;
   const counts = { gym: 0, stop: 0, power: 0, event: 0, raid: 0,
-                   VALOR: 0, MYSTIC: 0, INSTINCT: 0, NEUTRAL: 0, mega: 0 };
+                   VALOR: 0, MYSTIC: 0, INSTINCT: 0, NEUTRAL: 0, mega: 0, egg: 0 };
+  // 各星級各有幾個（側欄的星數篩選旁邊會顯示）
+  const tiers = { 1: 0, 3: 0, 5: 0, mega: 0, s1: 0, s3: 0, s5: 0, other: 0 };
 
   const want = { gym: new Map(), stop: new Map(), power: new Map(), event: new Map() };
   const raids = [], powers = [];
@@ -834,10 +849,17 @@ function render(withPanel = true) {
       case 'gym': {
         counts.gym++; counts[it.team]++;
         if (it.megaRaid) counts.mega++;
-        if (it.raid) { counts.raid++; raids.push(it); }
+        const tk = it.raid ? tierKey(it.raid.rating) : null;
+        if (it.raid) {
+          counts.raid++; raids.push(it); tiers[tk]++;
+          if (it.raid.egg) counts.egg++;
+        }
         if (!f.layer.has('gym') || !f.team.has(it.team)) break;
         if (f.onlyRaid && !it.raid) break;
+        if (f.onlyEgg && !(it.raid && it.raid.egg)) break;
         if (f.onlyMega && !it.megaRaid) break;
+        // 星數篩選只約束有團體戰的道館；沒團體戰的交給上面那幾個開關決定
+        if (tk && !f.tier.has(tk)) break;
         if (inView(it)) want.gym.set(it.id, it);
         break;
       }
@@ -927,6 +949,11 @@ function render(withPanel = true) {
   $('#cRaid').textContent  = counts.raid;
   $('#cPower2').textContent = counts.power;
   $('#cMega').textContent  = counts.mega.toLocaleString();
+  $('#cEgg').textContent   = counts.egg;
+  for (const k of ['1', '3', '5', 'mega', 's1', 's3', 's5']) {
+    const el = $('#k' + k);
+    if (el) el.textContent = tiers[k];
+  }
   for (const t of Object.keys(TEAM)) $('#t' + t).textContent = counts[t].toLocaleString();
   if (state.lastUpdate) $('#clock').textContent = '更新於 ' + hhmm(state.lastUpdate);
 
@@ -1414,8 +1441,16 @@ $('#qClear').addEventListener('click', () => {
 
 /* -------------------------------------------------------------- 事件 --- */
 // 用箭頭函式包起來：直接傳 render 的話事件物件會變成第一個參數
-for (const el of document.querySelectorAll('.layer,.team,#onlyRaid,#onlyMega'))
+for (const el of document.querySelectorAll('.layer,.team,.tier,#onlyRaid,#onlyMega,#onlyEgg'))
   el.addEventListener('change', () => scheduleRender());
+// 星數的全選 / 全不選
+for (const [id, on] of [['#tierAll', true], ['#tierNone', false]]) {
+  const b = $(id);
+  if (b) b.addEventListener('click', () => {
+    for (const c of document.querySelectorAll('.tier')) c.checked = on;
+    scheduleRender();
+  });
+}
 // 把能量點圖層打開時，如果還沒抓過就補抓一次（平常關著就完全不會帶 token 出去）
 document.querySelector('.layer[value="power"]').addEventListener('change', e => {
   if (e.target.checked && getToken() && !state.power.length) refreshPower(false);
@@ -1488,8 +1523,11 @@ map.on('moveend zoomend', () => { scheduleRender(false); drawGrid(); });
     state.powerCells = JSON.parse(localStorage.getItem('power_cells') || '[]');
   } catch (e) { state.powerCells = []; }
 
+  // 兩種模式的流量差 100 倍以上，寫死一個數字會誤導人
+  const perRound = CFG.source === 'direct' ? '每次約 3.3 MB' : '每次約 30 KB';
   $('#autoLabel').textContent = CFG.refreshSec > 0
-    ? `一般資料每 ${CFG.refreshSec} 秒（不帶 token）` : '一般資料自動更新已關閉';
+    ? `一般資料每 ${CFG.refreshSec} 秒（不帶 token），${perRound}`
+    : '一般資料自動更新已關閉';
   $('#powerLabel').textContent = CFG.powerRefreshSec > 0
     ? `能量點每 ${CFG.powerRefreshSec} 秒（帶 token）` : '能量點自動更新已關閉';
   $('#srcLabel').textContent = CFG.source === 'direct' ? '瀏覽器直接抓 Niantic' : 'Cloudflare Worker';

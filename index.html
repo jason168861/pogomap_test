@@ -81,8 +81,36 @@
       <img class="sw-img" src="img/gym_NEUTRAL.png" alt="">無主 <b id="tNEUTRAL">0</b></label>
     <label class="sub"><input type="checkbox" id="onlyRaid">
       只顯示有團體戰的道館</label>
+    <label class="sub"><input type="checkbox" id="onlyEgg">
+      只顯示未孵化的蛋 <b id="cEgg">0</b></label>
     <label class="sub"><input type="checkbox" id="onlyMega">
       <span class="sw sw-mega"></span>只顯示極致超級團體戰道館 <b id="cMega">0</b></label>
+  </section>
+
+  <section class="grp">
+    <h2>團體戰星數</h2>
+    <div class="tiers">
+      <label><input type="checkbox" class="tier" value="1" checked>
+        <i style="background:#ec4899"></i>1 星 <b id="k1">0</b></label>
+      <label><input type="checkbox" class="tier" value="3" checked>
+        <i style="background:#f59e0b"></i>3 星 <b id="k3">0</b></label>
+      <label><input type="checkbox" class="tier" value="5" checked>
+        <i style="background:#4f46e5"></i>5 星 <b id="k5">0</b></label>
+      <label><input type="checkbox" class="tier" value="mega" checked>
+        <i style="background:#a855f7"></i>超級 <b id="kmega">0</b></label>
+      <label><input type="checkbox" class="tier" value="s1" checked>
+        <i style="background:#7e22ce"></i>暗影 1 星 <b id="ks1">0</b></label>
+      <label><input type="checkbox" class="tier" value="s3" checked>
+        <i style="background:#7e22ce"></i>暗影 3 星 <b id="ks3">0</b></label>
+      <label><input type="checkbox" class="tier" value="s5" checked>
+        <i style="background:#7e22ce"></i>暗影 5 星 <b id="ks5">0</b></label>
+    </div>
+    <div class="bmrow2" style="margin-top:6px">
+      <button type="button" id="tierAll">全選</button>
+      <button type="button" id="tierNone">全不選</button>
+    </div>
+    <div class="note">星數篩選只作用在「有團體戰的道館」；沒有團體戰的道館不受影響，
+      要一併隱藏請勾上面的「只顯示有團體戰的道館」。</div>
   </section>
 
   <section class="grp" id="raidGrp">
@@ -138,7 +166,7 @@
   <section class="grp small">
     <div>資料來源：<span id="srcLabel">—</span></div>
     <div>格數：<span id="cellCount">—</span> 個 level-14 S2 cell</div>
-    <div><span id="autoLabel">—</span>，每次約 3.3 MB</div>
+    <div><span id="autoLabel">—</span></div>
     <div><span id="powerLabel">—</span></div>
     <div>手機吃行動網路時，網址加上
       <code>?refresh=300</code> 可改成 5 分鐘更新</div>

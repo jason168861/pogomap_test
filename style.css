@@ -252,7 +252,30 @@ body.lightmap .leaflet-control-attribution a{color:#0369a1}
 .arow .an{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .arow b{color:var(--dim);font-weight:600;font-size:11px;flex:none;
   font-variant-numeric:tabular-nums}
+.arow .at{color:var(--dim);font-size:11px;flex:none;font-variant-numeric:tabular-nums}
 .adot{width:9px;height:9px;border-radius:50%;flex:none}
+.pick{cursor:pointer;border-radius:5px}
+.pick:hover{background:#1d2733}
+
+/* 24 小時色帶：整條拉伸填滿側欄，時間刻度用 HTML 排在下面 */
+.band{width:100%;display:block;border-radius:3px}
+.bandax{display:flex;justify-content:space-between;font-size:9px;color:var(--dim);
+  margin:2px 0 6px;font-variant-numeric:tabular-nums}
+.astrip{padding:4px 3px;border-radius:5px}
+.astrip .atop{display:flex;align-items:baseline;gap:7px;font-size:11px;margin-bottom:2px}
+.astrip .atop .an{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.astrip .atop b{color:var(--dim);font-weight:600;flex:none}
+.apick{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;margin:8px 0 5px}
+.apick .an{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mini{padding:2px 8px;font-size:11px;flex:none}
+.alist{max-height:190px;overflow-y:auto;margin-top:6px}
+#anaQ{width:100%;margin-bottom:6px}
+
+/* 團體戰星數篩選 */
+.tiers{display:grid;grid-template-columns:1fr 1fr;gap:0 8px}
+.tiers label{display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer;font-size:12px}
+.tiers label i{width:9px;height:9px;border-radius:2px;flex:none}
+.tiers label b{margin-left:auto;color:var(--dim);font-weight:500;font-size:11px}
 
 /* 道館 popup 裡的「這個顏色佔領多久了」 */
 .pop .hold{margin-top:5px;font-size:12px;color:var(--fg)}
