@@ -27,6 +27,10 @@ const CFG = window.APP_CONFIG;
   if (p.has('basemap')) CFG.basemap = p.get('basemap');
 })();
 
+// 窄螢幕判斷。斷點和 style.css 一致；效能取捨（預設關補給站、視野緩衝大小）都看它。
+// 定義在最上面是因為 render() 要用，而 render() 比下面的 UI 程式碼早很多。
+const mqMobile = window.matchMedia('(max-width: 820px)');
+
 const TEAM = {
   VALOR:    { c: '#ef4444', n: '紅隊' },
   MYSTIC:   { c: '#3b82f6', n: '藍隊' },
@@ -693,8 +697,10 @@ function scheduleRender() {
 function render() {
   const f = filters();
   const zoom = map.getZoom();
-  const b = map.getBounds().pad(0.25);
-  const inView = it => it.lat != null && b.contains([it.lat, it.lng]);
+  // 縮太遠：標記全部不畫（側欄的統計數字照算，那是全部資料不是畫面上的）
+  const tooFar = zoom < CFG.markerMinZoom;
+  const b = map.getBounds().pad(mqMobile.matches ? CFG.viewPadMobile : CFG.viewPad);
+  const inView = it => !tooFar && it.lat != null && b.contains([it.lat, it.lng]);
   const counts = { gym: 0, stop: 0, power: 0, event: 0, raid: 0,
                    VALOR: 0, MYSTIC: 0, INSTINCT: 0, NEUTRAL: 0, mega: 0 };
 
@@ -720,11 +726,11 @@ function render() {
         break;
       case 'power':
         counts.power++; powers.push(it);
-        if (f.layer.has('power')) want.power.set(it.id, it);
+        if (f.layer.has('power') && inView(it)) want.power.set(it.id, it);
         break;
       case 'event':
         counts.event++;
-        if (f.layer.has('event') && it.lat != null) want.event.set(it.id, it);
+        if (f.layer.has('event') && inView(it)) want.event.set(it.id, it);
         break;
     }
   }
@@ -775,7 +781,8 @@ function render() {
   $('#stats').innerHTML =
     `<b>${counts.stop.toLocaleString()}</b> 補給站 · <b>${counts.gym.toLocaleString()}</b> 道館 · ` +
     `<b>${counts.raid}</b> 團體戰 · ` +
-    `<b>${counts.power}</b> 能量點`;
+    `<b>${counts.power}</b> 能量點` +
+    (tooFar ? ' · <b>放大才會顯示標記</b>' : '');
   if (state.lastUpdate) $('#clock').textContent = '更新於 ' + hhmm(state.lastUpdate);
 
   renderRaidList(raids);
@@ -1092,7 +1099,7 @@ map.on('mousemove', e => {
 /* -------------------------------------------------------------- 搜尋 --- */
 // 窄螢幕時側欄是整頁的抽屜，搜尋擺在裡面等於「要先開側欄才能搜」，很反直覺。
 // 所以窄螢幕就把整個搜尋區塊搬到地圖上方的浮動列，寬螢幕再搬回側欄原位。
-const mqMobile = window.matchMedia('(max-width: 820px)');
+// （mqMobile 定義在檔案最上面）
 function placeSearch() {
   const grp = $('#searchGrp');
   const host = mqMobile.matches ? $('#searchHost') : $('#panel');
@@ -1292,6 +1299,12 @@ map.on('moveend zoomend', () => { scheduleRender(); drawGrid(); });
   // 手機預設收起側欄，桌機預設展開；搜尋列在手機是浮在地圖上的，不跟著側欄收合
   togglePanel(mqMobile.matches);
   placeSearch();
+
+  // 補給站數量最多，手機上是主要的卡頓來源 -> 預設關掉（使用者仍可自己打開）
+  if (CFG.stopDefaultOff === true ||
+      (CFG.stopDefaultOff === 'mobile' && mqMobile.matches)) {
+    document.querySelector('.layer[value="stop"]').checked = false;
+  }
 
   let bm = CFG.basemap;
   if (!new URLSearchParams(location.search).has('basemap')) {
