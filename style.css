@@ -103,6 +103,12 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;appeara
   box-shadow:0 1px 3px rgba(0,0,0,.5)}
 .gm .mega{position:absolute;left:8px;bottom:12px;width:10px;height:10px;border-radius:50%;
   background:var(--mega);border:1.5px solid #fff;box-shadow:0 1px 2px rgba(0,0,0,.5)}
+/* 縮小時的道館圓點。刻意不用 filter/box-shadow —— 這個狀態下畫面上可能有幾百個，
+   每一個陰影都是一次獨立合成，手機拖曳就是卡在這裡。白色外框就夠分離底圖了。 */
+.gdot{background:none;border:none;cursor:pointer}
+.gdot i{display:block;width:14px;height:14px;border-radius:50%;
+  border:2px solid #fff;box-sizing:border-box}
+
 @keyframes pulse{
   0%{transform:scale(.55);opacity:.95}
   70%{transform:scale(1.25);opacity:0}

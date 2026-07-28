@@ -687,20 +687,33 @@ function filters() {
   };
 }
 
-function scheduleRender() {
+/* 側欄的清單只跟「資料 + 篩選」有關，跟地圖看哪裡無關。
+   拖曳/縮放時重建整份團體戰清單（每列都有圖）是白做工，手機上很有感，
+   所以分成兩種重繪：移動地圖只更新標記，資料或篩選變了才連側欄一起更新。 */
+let panelDirty = true;
+
+function scheduleRender(withPanel = true) {
+  if (withPanel) panelDirty = true;
   if (state.renderPending) return;
   state.renderPending = requestAnimationFrame(() => {
-    state.renderPending = null; render();
+    state.renderPending = null;
+    const p = panelDirty; panelDirty = false;
+    render(p);
   });
 }
 
-function render() {
+function render(withPanel = true) {
   const f = filters();
   const zoom = map.getZoom();
+  const mob = mqMobile.matches;
   // 縮太遠：標記全部不畫（側欄的統計數字照算，那是全部資料不是畫面上的）
   const tooFar = zoom < CFG.markerMinZoom;
-  const b = map.getBounds().pad(mqMobile.matches ? CFG.viewPadMobile : CFG.viewPad);
-  const inView = it => !tooFar && it.lat != null && b.contains([it.lat, it.lng]);
+  // 這個迴圈要跑上萬筆，所以先把邊界拆成四個數字比大小，
+  // 不要每筆都 b.contains([lat,lng]) —— 那會多配置一個 LatLng 物件。
+  const b = map.getBounds().pad(mob ? CFG.viewPadMobile : CFG.viewPad);
+  const vN = b.getNorth(), vS = b.getSouth(), vE = b.getEast(), vW = b.getWest();
+  const inView = it => !tooFar && it.lat != null &&
+    it.lat <= vN && it.lat >= vS && it.lng <= vE && it.lng >= vW;
   const counts = { gym: 0, stop: 0, power: 0, event: 0, raid: 0,
                    VALOR: 0, MYSTIC: 0, INSTINCT: 0, NEUTRAL: 0, mega: 0 };
 
@@ -744,11 +757,24 @@ function render() {
           fillColor: C_STOP, fillOpacity: .95 }),
     () => (useStopIcon ? 'i' : 'c'));
 
+  // 縮小時「沒有團體戰的」道館改畫小圓點：一個 <i>、純背景色，
+  // 不載圖也不套 drop-shadow 濾鏡（那個濾鏡每個標記都是一次合成，數量一多手機就卡）。
+  // 有團體戰的一律保留完整圖示，不然縮一下就找不到蛋了。
+  const gymDot = it => zoom < (mob ? CFG.gymIconZoomMobile : CFG.gymIconZoom) && !it.raid;
   syncLayer('gym', want.gym,
-    it => L.marker([it.lat, it.lng], {
-      icon: gymDivIcon(it), pane: 'pGyms', riseOnHover: true,
-      zIndexOffset: it.raid ? 1000 : 0, title: it.n }),
-    it => `${it.team}|${it.megaRaid}|${it.raid ? it.raid.boss + it.raid.end : ''}`);
+    it => gymDot(it)
+      ? L.marker([it.lat, it.lng], {
+          pane: 'pGyms', title: it.n,
+          icon: L.divIcon({
+            className: 'gdot',
+            html: `<i style="background:${(TEAM[it.team] || TEAM.NEUTRAL).c}"></i>`,
+            iconSize: [14, 14], iconAnchor: [7, 7], popupAnchor: [0, -6] }) })
+      : L.marker([it.lat, it.lng], {
+          icon: gymDivIcon(it), pane: 'pGyms', riseOnHover: true,
+          zIndexOffset: it.raid ? 1000 : 0, title: it.n }),
+    // 圓點/圖示的切換也要進 signature，跨過門檻時才會重建
+    it => `${gymDot(it) ? 'd' : 'i'}|${it.team}|${it.megaRaid}|` +
+          `${it.raid ? it.raid.boss + it.raid.end : ''}`);
 
   syncLayer('power', want.power,
     it => L.marker([it.lat, it.lng], {
@@ -767,6 +793,16 @@ function render() {
 
   if (f.layer.has('border')) map.addLayer(layers.border); else map.removeLayer(layers.border);
 
+  // 這行跟縮放有關（縮太遠時要提示），所以移動地圖也要更新
+  $('#stats').innerHTML =
+    `<b>${counts.stop.toLocaleString()}</b> 補給站 · <b>${counts.gym.toLocaleString()}</b> 道館 · ` +
+    `<b>${counts.raid}</b> 團體戰 · ` +
+    `<b>${counts.power}</b> 能量點` +
+    (tooFar ? ' · <b>放大才會顯示標記</b>' : '');
+
+  // ---- 以下只跟資料/篩選有關，拖曳縮放時整段跳過 ----
+  if (!withPanel) return;
+
   // ---- 數字 ----
   $('#cGym').textContent   = counts.gym.toLocaleString();
   $('#cStop').textContent  = zoom < CFG.stopMinZoom
@@ -777,12 +813,6 @@ function render() {
   $('#cPower2').textContent = counts.power;
   $('#cMega').textContent  = counts.mega.toLocaleString();
   for (const t of Object.keys(TEAM)) $('#t' + t).textContent = counts[t].toLocaleString();
-
-  $('#stats').innerHTML =
-    `<b>${counts.stop.toLocaleString()}</b> 補給站 · <b>${counts.gym.toLocaleString()}</b> 道館 · ` +
-    `<b>${counts.raid}</b> 團體戰 · ` +
-    `<b>${counts.power}</b> 能量點` +
-    (tooFar ? ' · <b>放大才會顯示標記</b>' : '');
   if (state.lastUpdate) $('#clock').textContent = '更新於 ' + hhmm(state.lastUpdate);
 
   renderRaidList(raids);
@@ -1256,8 +1286,9 @@ $('#qClear').addEventListener('click', () => {
 });
 
 /* -------------------------------------------------------------- 事件 --- */
+// 用箭頭函式包起來：直接傳 render 的話事件物件會變成第一個參數
 for (const el of document.querySelectorAll('.layer,.team,#onlyRaid,#onlyMega'))
-  el.addEventListener('change', render);
+  el.addEventListener('change', () => scheduleRender());
 // 把能量點圖層打開時，如果還沒抓過就補抓一次（平常關著就完全不會帶 token 出去）
 document.querySelector('.layer[value="power"]').addEventListener('change', e => {
   if (e.target.checked && getToken() && !state.power.length) refreshPower(false);
@@ -1292,7 +1323,8 @@ function togglePanel(hide) {
   setTimeout(() => map.invalidateSize(), 200);
 }
 $('#btnPanel').addEventListener('click', () => togglePanel());
-map.on('moveend zoomend', () => { scheduleRender(); drawGrid(); });
+// 移動地圖只重畫標記，側欄清單不動（false = 不含側欄）
+map.on('moveend zoomend', () => { scheduleRender(false); drawGrid(); });
 
 /* -------------------------------------------------------------- 啟動 --- */
 (async function init() {
