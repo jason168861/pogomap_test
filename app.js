@@ -686,6 +686,11 @@ const sharedPopup = L.popup({
 
 function openPopup(latlng, html) {
   sharedPopup.setLatLng(latlng).setContent(html).openOn(map);
+  // ★ 不能靠 map 的 'popupopen' 事件來接手：整個網站共用同一個 popup 物件，
+  //   而 Leaflet 的 Map.addLayer 對「已經加過的 layer」會直接 return，
+  //   所以只有「從關閉變成開啟」那一次會觸發事件，點第二個道館就沒了。
+  //   改成每次都明確呼叫，analysis.js 靠這個把當天的顏色變化填進 .gymana。
+  if (typeof window.onPopupOpened === 'function') window.onPopupOpened(sharedPopup);
 }
 
 // 照片載入失敗就把整個 <img> 藏起來

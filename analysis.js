@@ -249,7 +249,9 @@ function render() {
   const box = $('#anaBody');
   if (!box) return;
   if (A.loading) { box.innerHTML = '<div class="empty">載入中…</div>'; return; }
-  if (!A.events) { box.innerHTML = '<div class="empty">按「載入」開始分析。</div>'; return; }
+  // 還沒按「載入全區統計」時這裡是空的 —— 單一道館的分析在地圖的 popup 上，
+  // 不需要先按任何東西
+  if (!A.events) { box.innerHTML = ''; return; }
 
   const hourly = chartHourly(A.events);
   let h = '';
@@ -265,8 +267,6 @@ function render() {
           <span>·</span> ${raidN} 次團體戰異動</div>`;
   }
 
-  h += `<div class="note">單一道館的分析在地圖上——<b>點任何一個道館</b>，
-        它的資訊視窗裡就會有當天的顏色變化時間軸。</div>`;
   h += sectionTop();
 
   if (hourly.total) h += `<h3 class="ah">全區每小時易主<span>顏色＝被誰搶走</span></h3>${hourly.svg}`;
@@ -334,22 +334,27 @@ async function load(date) {
 /* ------------------------------------------------- 掛進道館的 popup --- */
 // app.js 的 popupGym 會留一個空的 .gymana 容器（它是同步產 HTML 的，
 // 來不及等網路），這裡在 popup 開啟後把內容補進去。
+//
+// 用 app.js 明確呼叫的 window.onPopupOpened，而不是 map 的 'popupopen' 事件 ——
+// 整個網站共用同一個 popup 物件，那個事件只有第一次開啟會觸發。
 function hookPopup() {
-  if (typeof map === 'undefined' || !map.on) return;
-  map.on('popupopen', ev => {
-    const root = ev.popup.getElement && ev.popup.getElement();
+  window.onPopupOpened = popup => {
+    const root = popup && popup.getElement && popup.getElement();
     if (!root) return;
     const el = root.querySelector('.gymana');
     if (!el || !el.dataset.id) return;
 
+    const id = el.dataset.id;
     const fill = () => {
-      el.innerHTML = gymPanelHtml(el.dataset.id);
-      ev.popup.update();          // 內容變高了，讓 Leaflet 重新定位
+      // 填之前再確認一次：使用者可能已經點去別的道館了
+      if (el.dataset.id !== id || !el.isConnected) return;
+      el.innerHTML = gymPanelHtml(id);
+      if (popup.update) popup.update();     // 內容變高了，讓 Leaflet 重新定位
     };
     if (A.events && Date.now() - A.histAt < HIST_TTL) { fill(); return; }
     el.innerHTML = '<div class="gahead">載入變化紀錄…</div>';
     ensureHistory().then(fill);
-  });
+  };
 }
 
 /* --------------------------------------------------------------- UI --- */
@@ -359,20 +364,28 @@ function mount() {
   hookPopup();
 
   const panel = document.querySelector('#panel');
-  const anchor = document.querySelector('#searchGrp');
-  if (!panel || !anchor) return;
+  if (!panel) return;
 
   const sec = document.createElement('section');
   sec.className = 'grp';
   sec.id = 'anaGrp';
   sec.innerHTML = `
     <h2>道館變化分析</h2>
+    <div class="note" style="margin-top:0">點地圖上任何一個道館，
+      它的資訊視窗裡就有當天的顏色變化時間軸。</div>
     <div class="arow2">
       <select id="anaDate"><option value="">今天</option></select>
-      <button type="button" id="anaLoad">載入</button>
+      <button type="button" id="anaLoad">載入全區統計</button>
     </div>
-    <div id="anaBody"><div class="empty">按「載入」開始分析。</div></div>`;
-  panel.insertBefore(sec, anchor);
+    <div id="anaBody"></div>`;
+
+  // ★ 定位點不能用 #searchGrp：窄螢幕時 app.js 的 placeSearch() 會把它搬到
+  //   #searchHost（浮在地圖上的搜尋列），此時它已經不是 #panel 的子節點，
+  //   insertBefore 會丟例外，整段面板就不見了 —— 手機上看不到就是這個原因。
+  //   #raidGrp 不會被搬動，而且位置比較上面，比較好找。
+  const anchor = document.querySelector('#raidGrp');
+  if (anchor && anchor.parentNode === panel) panel.insertBefore(sec, anchor);
+  else panel.appendChild(sec);
 
   $('#anaLoad').addEventListener('click', () => load($('#anaDate').value || today()));
 
