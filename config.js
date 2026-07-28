@@ -11,7 +11,7 @@ window.APP_CONFIG = {
   //              Worker 每 2 分鐘在雲端更新一次，這台裝置每次只下載約 70 KB
   //              的道館狀態（名稱/座標/補給站是靜態的，只會下載一次）。
   //              部署步驟看 worker/README-R2.md。
-  source: 'direct',
+  source: 'https://taoyuan-map.jason168861.workers.dev',
 
   // 一般資料的更新間隔（秒）。0 = 不自動更新。
   // direct 模式：這一趟不帶 token，抓道館 / 補給站 / 團體戰 / 活動，
