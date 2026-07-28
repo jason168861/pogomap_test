@@ -1,17 +1,17 @@
 /* ---------------------------------------------------------------------------
-   道館變化分析面板。
+   道館變化分析。
 
-   主軸是「單一道館在一天之內，什麼時段被什麼顏色佔據」——
-   把變化事件重建成連續的時間區段，畫成 24 小時的色帶。
+   主軸是「單一道館在某一天之內，什麼時段被什麼顏色佔據」——
+   把變化事件重建成連續的時間區段，畫成 24 小時的色帶，直接顯示在
+   地圖上那個道館的 popup 裡。日期可以在 popup 上直接切換。
 
-   資料全部來自 Worker（direct 模式沒有歷史可分析，面板會自動隱藏）：
-     /history?date= 當天所有變化事件 → 每個道館的時間軸
+   資料來源（Worker，direct 模式沒有歷史，整個面板會自動隱藏）：
+     /history?date= 某一天的所有變化事件 → 每個道館的時間軸
      /stats?date=   每 2 分鐘一筆的隊伍佔領數 → 全區趨勢
-     /days          有哪些日子留著紀錄
-     /state         目前狀態（app.js 已經抓好放在 state.pub）
+     /days          有哪些日子留著紀錄（保留 30 天）
 
-   圖表是手寫 SVG，沒有引入任何圖表函式庫 —— 這個網站本來就對手機效能
-   很敏感（見 config.js 那一串效能設定），沒必要為了幾條色帶多載一包 JS。
+   圖表是手寫 SVG，沒有引入任何圖表函式庫 —— 這個網站對手機效能很敏感
+   （見 config.js 那一串效能設定），沒必要為了幾條色帶多載一包 JS。
 
    時間一律用瀏覽器本地時間，跟 Worker 那邊按台灣時間切檔一致
    （前提是你人在台灣；出國看的話時段會偏移）。
@@ -26,15 +26,16 @@ const ORDER = ['V', 'M', 'I', 'N'];
 const col = c => (TEAM[TEAM_KEY[c]] || TEAM.NEUTRAL).c;
 const tname = c => (TEAM[TEAM_KEY[c]] || TEAM.NEUTRAL).n;
 const DAY = 86400000;
-const SW = 320;          // SVG viewBox 寬度，實際寬度由 CSS 撐滿側欄
-
-const HIST_TTL = 180000;   // 當天的變化紀錄快取多久（毫秒）
+const SW = 320;            // SVG viewBox 寬度，實際寬度由 CSS 撐滿
+const HIST_TTL = 180000;   // 「今天」的紀錄快取多久（過去的日期不會再變，永久快取）
 
 const A = {
-  date: null, events: null, stats: null, loading: false,
-  byGym: new Map(),      // 道館 id -> 當天的易主事件（已排序）
-  histAt: 0,             // 上次抓 /history 的時間
-  histPending: null      // 進行中的請求，避免連點好幾個道館時重複抓
+  date: null,              // 目前在看哪一天（popup 和側欄共用）
+  dates: null,             // /days 的清單
+  cache: new Map(),        // date -> { events, byGym, at }
+  pending: new Map(),      // date -> 進行中的請求，避免連點時重複抓
+  stats: null, statsDate: null,
+  loading: false
 };
 
 function today() {
@@ -42,7 +43,6 @@ function today() {
   const p = n => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
-
 function dayStart(date) {
   const [y, m, d] = date.split('-').map(Number);
   return new Date(y, m - 1, d).getTime();
@@ -54,21 +54,58 @@ async function getJ(path) {
   return res.json();
 }
 
+/* --------------------------------------------------------- 取資料 --- */
+// 過去的日期抓過就永久留著（不會再變）；只有「今天」需要定期重抓。
+function ensureDay(date) {
+  const hit = A.cache.get(date);
+  if (hit && (date !== today() || Date.now() - hit.at < HIST_TTL)) return Promise.resolve(hit);
+  if (A.pending.has(date)) return A.pending.get(date);
+
+  const p = getJ('/history?date=' + date)
+    .then(ev => store(date, ev))
+    .catch(err => { log('分析：' + err.message); return store(date, []); })
+    .finally(() => A.pending.delete(date));
+  A.pending.set(date, p);
+  return p;
+}
+
+function store(date, events) {
+  const byGym = new Map();
+  for (const e of events) {
+    if (e.t !== 'team') continue;
+    if (!byGym.has(e.id)) byGym.set(e.id, []);
+    byGym.get(e.id).push(e);
+  }
+  for (const list of byGym.values()) list.sort((a, b) => a.at - b.at);
+  const entry = { events, byGym, at: Date.now() };
+  A.cache.set(date, entry);
+  return entry;
+}
+
+function ensureDates() {
+  if (A.dates) return Promise.resolve(A.dates);
+  return getJ('/days')
+    .then(d => (A.dates = d.slice().sort().reverse()))
+    .catch(() => (A.dates = []));
+}
+
 /* ------------------------------------------------ 重建單一道館的時間軸 ---
    事件只記錄「換手的瞬間」，要畫色帶就得補回中間的區段：
      第一筆事件之前 → 用那筆的 from（誰被搶走的，就是先前的佔領者）
      兩筆事件之間   → 用前一筆的 to
      最後一筆之後   → 用最後一筆的 to，一路延伸到當天結束（或現在）
-   當天完全沒有事件的道館，就只能用「現在的顏色」推定整天，標成半透明。 */
-function timelineFor(gymId, currentTeam) {
-  const t0 = dayStart(A.date);
+   當天完全沒有事件的道館，只有在查「今天」時才用現在的顏色推定整天，
+   標成半透明；查過去的日期不能這樣推，因為中間可能換過好幾手。 */
+function timelineFor(gymId, currentTeam, date) {
+  const t0 = dayStart(date);
   const end = Math.min(t0 + DAY, Date.now());
   if (end <= t0) return [];
-  const evs = A.byGym.get(gymId);
+
+  const entry = A.cache.get(date);
+  const evs = entry && entry.byGym.get(gymId);
 
   if (!evs || !evs.length) {
-    // 過去的日期不能拿今天的顏色來推——中間可能換過好幾手
-    if (A.date !== today() || !currentTeam) return [];
+    if (date !== today() || !currentTeam) return [];
     return [{ a: t0, b: end, c: CODE[currentTeam] || 'N', guess: true }];
   }
 
@@ -90,9 +127,9 @@ function segTotals(segs) {
 
 /* --------------------------------------------------------- 色帶 SVG --- */
 // preserveAspectRatio=none：色帶只有純色方塊，橫向拉伸沒有副作用，
-// 這樣不管側欄多寬都剛好填滿，時間刻度另外用 HTML 排在下面。
-function band(segs, h) {
-  const t0 = dayStart(A.date);
+// 這樣不管容器多寬都剛好填滿；時間刻度另外用 HTML 排在下面。
+function band(segs, h, date) {
+  const t0 = dayStart(date);
   const x = t => ((t - t0) / DAY) * SW;
   let s = `<svg viewBox="0 0 ${SW} ${h}" class="band" preserveAspectRatio="none">`;
   s += `<rect x="0" y="0" width="${SW}" height="${h}" fill="#0f1720"/>`;
@@ -154,7 +191,6 @@ function chartHourly(events) {
     const n = b.V + b.M + b.I + b.N;
     if (n > peakN) { peakN = n; peakH = h; }
   });
-
   return {
     svg: `<svg viewBox="0 0 ${SW} ${H}" class="chart">${axisY(max, L, T, H - B, 2)}${bars}</svg>`,
     total, peak: { h: peakH, n: peakN }
@@ -162,7 +198,7 @@ function chartHourly(events) {
 }
 
 function chartShare(stats) {
-  if (stats.length < 2) return '';
+  if (!stats || stats.length < 2) return '';
   const H = 130, L = 28, T = 8, B = 18;
   const t0 = stats[0].t, t1 = stats[stats.length - 1].t;
   const span = Math.max(1, t1 - t0);
@@ -180,7 +216,6 @@ function chartShare(stats) {
     areas += `<polygon points="${up} ${down}" fill="${col(c)}" fill-opacity=".85"/>`;
     stats.forEach((s, i) => { base[i] = top[i]; });
   }
-
   let ticks = '';
   const d0 = new Date(t0);
   for (let h = 0; h <= 24; h += 6) {
@@ -192,7 +227,7 @@ function chartShare(stats) {
          axisY(max, L, T, H - B, 2) + areas + ticks + `</svg>`;
 }
 
-/* ----------------------------------------------------------- 各區塊 --- */
+/* --------------------------------------------------------- popup 內容 --- */
 function gymName(id) {
   const g = (state.wGyms || []).find(x => x.id === id);
   return g ? g.n : '(未知道館)';
@@ -201,20 +236,33 @@ function gymItem(id) {
   return state.pub.find(x => x.k === 'gym' && x.id === id) || null;
 }
 
-/* 單一道館的分析。這段會塞進地圖上那個道館的 popup 裡 ——
-   點哪個道館就看哪個，不用先在側欄翻一長串清單。 */
-function gymPanelHtml(id) {
+// 日期下拉。清單來自 /days（Worker 保留 30 天），今天一定會在裡面。
+function dateSelect(date) {
+  const list = (A.dates && A.dates.length ? A.dates.slice() : []);
+  if (!list.includes(today())) list.push(today());
+  // 目前在看的日期一定要在清單裡，否則下拉會顯示成別的日期，跟內容對不上
+  if (date && !list.includes(date)) list.push(date);
+  list.sort().reverse();                       // ISO 日期字串的字典序＝時間序
+  return `<select class="gadate">` + list.map(d =>
+    `<option value="${d}"${d === date ? ' selected' : ''}>${d === today() ? '今天' : d}</option>`
+  ).join('') + `</select>`;
+}
+
+function gymPanelHtml(id, date) {
   const it = gymItem(id);
-  const segs = timelineFor(id, it && it.team);
-  const evs = A.byGym.get(id) || [];
-  const label = A.date === today() ? '今天' : A.date;
+  const segs = timelineFor(id, it && it.team, date);
+  const entry = A.cache.get(date);
+  const evs = (entry && entry.byGym.get(id)) || [];
+
+  let h = `<div class="gahead"><span>顏色變化</span>${dateSelect(date)}</div>`;
 
   if (!segs.length) {
-    return `<div class="gahead">${label}沒有易主紀錄</div>`;
+    return h + `<div class="gamsg">這一天沒有易主紀錄${
+      date === today() ? '' : '，也無法推定當天的顏色'}。</div>`;
   }
 
-  let h = `<div class="gahead">${label}的顏色變化 · 易主 <b>${evs.length}</b> 次</div>`;
-  h += band(segs, 16) + HOUR_AXIS;
+  h += `<div class="gamsg">易主 <b>${evs.length}</b> 次</div>`;
+  h += band(segs, 16, date) + HOUR_AXIS;
 
   const tot = segTotals(segs);
   h += '<div class="galeg">' + ORDER.filter(c => tot[c] > 0).map(c =>
@@ -231,9 +279,70 @@ function gymPanelHtml(id) {
   return h;
 }
 
-// 側欄只留一個「哪些道館值得看」的入口，點一下跳到地圖並打開它的 popup
+/* ------------------------------------------------- 掛進道館的 popup --- */
+// ⚠ 千萬不能呼叫 popup.update()。Leaflet 的 DivOverlay.update() 會走到
+//   _updateContent()，而那一行是 `node.innerHTML = this._content` ——
+//   用「原本 setContent 傳進去的那份字串」把整個內容重寫一次，
+//   我們剛填進 .gymana 的東西會被洗掉，畫面又變回預設文字。
+//   只呼叫重算版面/位置的那幾個，它們不碰內容。
+function reflow(popup) {
+  if (!popup) return;
+  try {
+    if (popup._updateLayout) popup._updateLayout();
+    if (popup._updatePosition) popup._updatePosition();
+    if (popup._adjustPan) popup._adjustPan();
+  } catch (e) { /* Leaflet 內部 API，換版本失效就算了，不影響內容 */ }
+}
+
+function fillGymana(el, popup) {
+  if (!el || !el.dataset.id) return;
+  const id = el.dataset.id;
+  A.date = A.date || today();
+
+  const draw = () => {
+    // 填之前再確認一次：使用者可能已經點去別的道館了
+    if (el.dataset.id !== id || !el.isConnected) return;
+    el.innerHTML = gymPanelHtml(id, A.date);
+    const sel = el.querySelector('.gadate');
+    if (sel) sel.addEventListener('change', ev => {
+      A.date = ev.target.value;
+      el.innerHTML = `<div class="gamsg">載入 ${A.date} 的紀錄…</div>`;
+      reflow(popup);
+      ensureDay(A.date).then(draw);
+      syncSidebarDate();
+    });
+    reflow(popup);
+  };
+
+  const entry = A.cache.get(A.date);
+  const fresh = entry && (A.date !== today() || Date.now() - entry.at < HIST_TTL);
+  if (fresh && A.dates) { draw(); return; }
+
+  el.innerHTML = '<div class="gamsg">載入變化紀錄…</div>';
+  Promise.all([ensureDates(), ensureDay(A.date)]).then(draw);
+}
+
+function hookPopup() {
+  // 用 app.js 明確呼叫的 window.onPopupOpened，而不是 map 的 'popupopen' 事件 ——
+  // 整個網站共用同一個 popup 物件，那個事件只有第一次開啟會觸發。
+  window.onPopupOpened = popup => {
+    const root = popup && popup.getElement && popup.getElement();
+    if (root) fillGymana(root.querySelector('.gymana'), popup);
+  };
+  // 備援：萬一有哪條路徑不是走 app.js 的 openPopup()。fillGymana 是冪等的。
+  if (typeof map !== 'undefined' && map.on) {
+    map.on('popupopen', ev => {
+      const root = ev.popup && ev.popup.getElement && ev.popup.getElement();
+      if (root) fillGymana(root.querySelector('.gymana'), ev.popup);
+    });
+  }
+}
+
+/* ----------------------------------------------------------- 側欄 --- */
 function sectionTop() {
-  const ranked = [...A.byGym.entries()]
+  const entry = A.cache.get(A.date);
+  if (!entry) return '';
+  const ranked = [...entry.byGym.entries()]
     .sort((a, b) => b[1].length - a[1].length).slice(0, 12);
   if (!ranked.length) return '';
   let h = `<h3 class="ah">易主最頻繁<span>點一下跳到地圖</span></h3>`;
@@ -244,36 +353,32 @@ function sectionTop() {
   return h;
 }
 
-/* ------------------------------------------------------------- 繪製 --- */
 function render() {
   const box = $('#anaBody');
   if (!box) return;
   if (A.loading) { box.innerHTML = '<div class="empty">載入中…</div>'; return; }
-  // 還沒按「載入全區統計」時這裡是空的 —— 單一道館的分析在地圖的 popup 上，
-  // 不需要先按任何東西
-  if (!A.events) { box.innerHTML = ''; return; }
 
-  const hourly = chartHourly(A.events);
+  const entry = A.cache.get(A.date);
+  // 還沒按「載入全區統計」時這裡是空的 —— 單一道館的分析在地圖的 popup 上
+  if (!entry || A.statsDate !== A.date) { box.innerHTML = ''; return; }
+
+  const hourly = chartHourly(entry.events);
   let h = '';
-
   if (!hourly.total) {
     h += `<div class="empty">${A.date} 還沒有易主紀錄。<br>
           Worker 是從部署那一刻才開始累積的，資料要跑一段時間才會有東西看。</div>`;
   } else {
-    const raidN = A.events.filter(e => e.t === 'raid').length;
+    const raidN = entry.events.filter(e => e.t === 'raid').length;
     h += `<div class="asum"><b>${hourly.total}</b> 次易主
           <span>·</span> 最熱門 <b>${hourly.peak.h}:00</b>（${hourly.peak.n} 次）
-          <span>·</span> ${A.byGym.size} 個道館換過手
+          <span>·</span> ${entry.byGym.size} 個道館換過手
           <span>·</span> ${raidN} 次團體戰異動</div>`;
   }
-
   h += sectionTop();
-
   if (hourly.total) h += `<h3 class="ah">全區每小時易主<span>顏色＝被誰搶走</span></h3>${hourly.svg}`;
   if (A.stats && A.stats.length >= 2) {
     h += `<h3 class="ah">全區各隊佔領數<span>每 2 分鐘取樣</span></h3>${chartShare(A.stats)}`;
   }
-
   box.innerHTML = h;
   wire();
 }
@@ -289,95 +394,26 @@ function wire() {
   }
 }
 
-function setEvents(ev) {
-  A.events = ev;
-  A.byGym = new Map();
-  for (const e of ev) {
-    if (e.t !== 'team') continue;
-    if (!A.byGym.has(e.id)) A.byGym.set(e.id, []);
-    A.byGym.get(e.id).push(e);
-  }
-  for (const list of A.byGym.values()) list.sort((a, b) => a.at - b.at);
-  A.histAt = Date.now();
-}
-
-// 確保手上有當天的變化紀錄。popup 每次開啟都會呼叫，所以要有快取和去重：
-// 連點五個道館只會抓一次，而且 3 分鐘內不重抓。
-function ensureHistory() {
-  if (A.events && Date.now() - A.histAt < HIST_TTL) return Promise.resolve();
-  if (A.histPending) return A.histPending;
-  A.date = A.date || today();
-  A.histPending = getJ('/history?date=' + A.date)
-    .then(ev => { setEvents(ev); })
-    .catch(e => { log('分析：' + e.message); if (!A.events) setEvents([]); })
-    .finally(() => { A.histPending = null; });
-  return A.histPending;
+// popup 上換了日期，側欄的下拉也跟著同步（兩邊共用 A.date，不要各說各話）
+function syncSidebarDate() {
+  const sel = $('#anaDate');
+  if (sel && sel.value !== A.date) sel.value = A.date;
 }
 
 async function load(date) {
   A.date = date || A.date || today();
+  syncSidebarDate();
   A.loading = true; render();
   try {
-    const [ev, st] = await Promise.all([
-      getJ('/history?date=' + A.date).catch(e => { log('分析：' + e.message); return []; }),
+    const [, st] = await Promise.all([
+      ensureDay(A.date),
       getJ('/stats?date=' + A.date).catch(() => [])
     ]);
-    setEvents(ev); A.stats = st;
+    A.stats = st; A.statsDate = A.date;
   } catch (err) {
     toast('分析資料載入失敗：' + err.message);
-    if (!A.events) setEvents([]);
   } finally {
     A.loading = false; render();
-  }
-}
-
-/* ------------------------------------------------- 掛進道館的 popup --- */
-// app.js 的 popupGym 會留一個空的 .gymana 容器（它是同步產 HTML 的，
-// 來不及等網路），這裡在 popup 開啟後把內容補進去。
-//
-// 用 app.js 明確呼叫的 window.onPopupOpened，而不是 map 的 'popupopen' 事件 ——
-// 整個網站共用同一個 popup 物件，那個事件只有第一次開啟會觸發。
-// ⚠ 千萬不能呼叫 popup.update()。Leaflet 的 DivOverlay.update() 會走到
-//   _updateContent()，而那一行是 `node.innerHTML = this._content` ——
-//   用「原本 setContent 傳進去的那份字串」把整個內容重寫一次，
-//   我們剛填進 .gymana 的東西會被洗掉，畫面又變回「分析尚未載入」。
-//   只呼叫重算版面/位置的那幾個，它們不碰內容。
-function reflow(popup) {
-  if (!popup) return;
-  try {
-    if (popup._updateLayout) popup._updateLayout();
-    if (popup._updatePosition) popup._updatePosition();
-    if (popup._adjustPan) popup._adjustPan();
-  } catch (e) { /* 這幾個是 Leaflet 內部 API，換版本失效就算了，不影響內容 */ }
-}
-
-function fillGymana(el, popup) {
-  if (!el || !el.dataset.id) return;
-  const id = el.dataset.id;
-  const fill = () => {
-    // 填之前再確認一次：使用者可能已經點去別的道館了
-    if (el.dataset.id !== id || !el.isConnected) return;
-    el.innerHTML = gymPanelHtml(id);
-    reflow(popup);
-  };
-  if (A.events && Date.now() - A.histAt < HIST_TTL) { fill(); return; }
-  el.innerHTML = '<div class="gahead">載入變化紀錄…</div>';
-  ensureHistory().then(fill);
-}
-
-function hookPopup() {
-  window.onPopupOpened = popup => {
-    const root = popup && popup.getElement && popup.getElement();
-    if (root) fillGymana(root.querySelector('.gymana'), popup);
-  };
-
-  // 備援：萬一有哪條路徑不是走 app.js 的 openPopup()，Leaflet 自己的事件也接一次。
-  // 兩邊都跑到也無所謂 —— fillGymana 是冪等的，重跑只是再畫一次相同的內容。
-  if (typeof map !== 'undefined' && map.on) {
-    map.on('popupopen', ev => {
-      const root = ev.popup && ev.popup.getElement && ev.popup.getElement();
-      if (root) fillGymana(root.querySelector('.gymana'), ev.popup);
-    });
   }
 }
 
@@ -386,6 +422,7 @@ function mount() {
   if (CFG.source === 'direct') return;      // direct 模式沒有 Worker，也就沒有歷史
 
   hookPopup();
+  A.date = today();
 
   const panel = document.querySelector('#panel');
   if (!panel) return;
@@ -396,7 +433,7 @@ function mount() {
   sec.innerHTML = `
     <h2>道館變化分析</h2>
     <div class="note" style="margin-top:0">點地圖上任何一個道館，
-      它的資訊視窗裡就有當天的顏色變化時間軸。</div>
+      它的資訊視窗裡就有當天的顏色變化時間軸，也可以在那邊直接換日期。</div>
     <div class="arow2">
       <select id="anaDate"><option value="">今天</option></select>
       <button type="button" id="anaLoad">載入全區統計</button>
@@ -405,29 +442,34 @@ function mount() {
 
   // ★ 定位點不能用 #searchGrp：窄螢幕時 app.js 的 placeSearch() 會把它搬到
   //   #searchHost（浮在地圖上的搜尋列），此時它已經不是 #panel 的子節點，
-  //   insertBefore 會丟例外，整段面板就不見了 —— 手機上看不到就是這個原因。
-  //   #raidGrp 不會被搬動，而且位置比較上面，比較好找。
+  //   insertBefore 會丟例外，整段面板就不見了。#raidGrp 不會被搬動。
   const anchor = document.querySelector('#raidGrp');
   if (anchor && anchor.parentNode === panel) panel.insertBefore(sec, anchor);
   else panel.appendChild(sec);
 
   $('#anaLoad').addEventListener('click', () => load($('#anaDate').value || today()));
+  $('#anaDate').addEventListener('change', e => { A.date = e.target.value || today(); });
 
-  getJ('/days').then(days => {
+  ensureDates().then(days => {
     const sel = $('#anaDate');
-    for (const d of days.slice().reverse()) {
+    if (!sel) return;
+    sel.innerHTML = '';
+    const list = days.slice();
+    if (!list.includes(today())) list.unshift(today());
+    for (const d of list) {
       const o = document.createElement('option');
-      o.value = d; o.textContent = (d === today() ? d + '（今天）' : d);
+      o.value = d; o.textContent = (d === today() ? '今天' : d);
       sel.appendChild(o);
     }
-  }).catch(() => { /* Worker 還是舊版就沒有這個端點，靜靜略過 */ });
+    sel.value = A.date;
+  });
 
-  // 寫進側欄最下面的 log。不用開 Console 就能確認這個模組到底有沒有跑起來。
+  // 寫進側欄最下面的 log。不用開 Console 就能確認這個模組有沒有跑起來。
   log('分析模組已就緒（點道館看時間軸）');
 }
 
-// 例外要自己接：classic script 裡丟出去的錯誤只會進 Console，
-// 而使用者通常不會去看，結果就是「popup 一直顯示分析尚未載入」卻不知道為什麼。
+// 例外要自己接：classic script 丟出去的錯誤只會進 Console，
+// 而使用者通常不會去看，結果就是 popup 一直顯示預設文字卻不知道為什麼。
 function safeMount() {
   try { mount(); }
   catch (err) {
