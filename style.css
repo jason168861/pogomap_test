@@ -227,6 +227,37 @@ body.lightmap .leaflet-control-attribution a{color:#0369a1}
   width:30px;height:30px;color:#333}
 .locate-control.busy a{opacity:.4}
 
+/* ---- 道館變化分析（analysis.js 動態插入的那一段）---- */
+.arow2{display:flex;gap:6px;margin-bottom:8px}
+.arow2 select{flex:1;min-width:0}
+.asum{font-size:12px;color:var(--dim);line-height:1.7;margin-bottom:4px}
+.asum b{color:var(--fg)}
+.asum span{opacity:.4;margin:0 4px}
+.ah{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--dim);
+  font-weight:600;margin:12px 0 4px;display:flex;align-items:baseline;gap:6px}
+.ah span{text-transform:none;letter-spacing:0;font-weight:400;font-size:10px;opacity:.65;
+  margin-left:auto}
+
+/* 圖表是手寫 SVG，用 viewBox 縮放，所以寬度直接吃滿側欄 */
+.chart{width:100%;height:auto;display:block;background:#111823;border-radius:6px}
+.chart .ax{stroke:var(--line);stroke-width:.5}
+.chart .axt{fill:var(--dim);font-size:8px;font-family:inherit}
+
+.alegend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11px;color:var(--dim);margin-top:5px}
+.alegend i{width:9px;height:9px;border-radius:2px;display:inline-block;margin-right:4px}
+
+.arow{display:flex;align-items:center;gap:7px;font-size:12px;padding:4px 2px;
+  border-bottom:1px solid rgba(42,52,65,.5)}
+.arow:last-child{border-bottom:none}
+.arow .an{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.arow b{color:var(--dim);font-weight:600;font-size:11px;flex:none;
+  font-variant-numeric:tabular-nums}
+.adot{width:9px;height:9px;border-radius:50%;flex:none}
+
+/* 道館 popup 裡的「這個顏色佔領多久了」 */
+.pop .hold{margin-top:5px;font-size:12px;color:var(--fg)}
+.pop .hold .since{color:var(--dim);font-size:11px}
+
 /* ---- 手機版的搜尋列 ----
    桌機的搜尋留在側欄裡；窄螢幕時側欄是整頁的抽屜，搜尋藏在裡面很難用，
    所以 JS 會把 #searchGrp 搬進 #searchHost，變成浮在地圖上的搜尋列。 */

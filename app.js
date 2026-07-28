@@ -216,7 +216,8 @@ const state = {
   // 道館的名稱/座標/圖片和補給站都是靜態的，沒必要每 2 分鐘重抓，
   // 所以留在記憶體裡，只有過期才重新下載。
   wGyms: null, wGymsAt: 0,      // Worker /gyms（每天更新一次）
-  wStops: null, wStopsAt: 0     // Worker /stops（幾個月才變一次）
+  wStops: null, wStopsAt: 0,    // Worker /stops（幾個月才變一次）
+  since0: 0                     // 監控起點；比它早的佔領時間不可考
 };
 
 /* -------------------------------------------- 帶 token 的請求用量統計 --- */
@@ -452,6 +453,9 @@ async function fetchFromWorker() {
   state.lastUpdate = head.t || Date.now();
   const bosses = head.bosses || {};     // 頭目圖片對照表，只有十來種，不必每行重複
 
+  // since0 = 監控起點。比它早的佔領時間是不可考的，只能說「至少多久」。
+  state.since0 = head.since0 || 0;
+
   const dyn = new Map();
   const lines = text.split('\n');
   for (let i = 1; i < lines.length; i++) {
@@ -468,6 +472,7 @@ async function fetchFromWorker() {
     const p = dyn.get(g.id);
     if (p) {
       it.team = TEAM_FROM_CODE[p[1]] || 'NEUTRAL';
+      if (p[6]) it.since = +p[6] || null;   // 這個隊伍是什麼時候佔下來的
       if (p[4]) {                       // 有結束時間 = 有團體戰
         const boss = p[2] || '', end = +p[4] || null;
         it.raid = {
@@ -683,6 +688,24 @@ function coordFoot(it) {
        href="https://www.google.com/maps/dir/?api=1&destination=${it.lat},${it.lng}">在 Google 地圖開啟 ↗</a>`;
 }
 
+// 「3 小時 12 分」這種人看得懂的長度
+function dur(ms) {
+  const m = Math.max(0, Math.floor(ms / 60000));
+  const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), mm = m % 60;
+  if (d) return `${d} 天 ${h} 小時`;
+  if (h) return `${h} 小時 ${mm} 分`;
+  return `${mm} 分`;
+}
+
+// 目前這個隊伍佔領多久了。監控開始前就已經是這個顏色的，只能說「至少」。
+function holdText(it) {
+  if (!it.since) return '';
+  const ago = dur(Date.now() - it.since);
+  // 佔領時間早於或等於監控起點 = 我們沒看過它易主，真正的時間只會更長
+  return (state.since0 && it.since <= state.since0 + 60000)
+    ? `已佔領至少 ${ago}` : `已佔領 ${ago}`;
+}
+
 function popupGym(it) {
   const t = TEAM[it.team] || TEAM.NEUTRAL;
   let h = `<div class="pop"><h3>${esc(it.n)}</h3>`;
@@ -690,6 +713,8 @@ function popupGym(it) {
   h += `<div class="meta"><span class="tag" style="background:${t.c}">${t.n}</span>`;
   if (it.megaRaid) h += ` <span class="tag" style="background:${C_MEGA}">極致超級團體戰</span>`;
   h += `</div>`;
+  const hold = holdText(it);
+  if (hold) h += `<div class="hold">${t.n}${hold}<span class="since">（${hhmm(it.since)} 起）</span></div>`;
   if (it.raid) {
     const r = it.raid, tier = raidTier(r.rating);
     h += `<div class="raid">`;
