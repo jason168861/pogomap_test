@@ -337,6 +337,20 @@ async function load(date) {
 //
 // 用 app.js 明確呼叫的 window.onPopupOpened，而不是 map 的 'popupopen' 事件 ——
 // 整個網站共用同一個 popup 物件，那個事件只有第一次開啟會觸發。
+// ⚠ 千萬不能呼叫 popup.update()。Leaflet 的 DivOverlay.update() 會走到
+//   _updateContent()，而那一行是 `node.innerHTML = this._content` ——
+//   用「原本 setContent 傳進去的那份字串」把整個內容重寫一次，
+//   我們剛填進 .gymana 的東西會被洗掉，畫面又變回「分析尚未載入」。
+//   只呼叫重算版面/位置的那幾個，它們不碰內容。
+function reflow(popup) {
+  if (!popup) return;
+  try {
+    if (popup._updateLayout) popup._updateLayout();
+    if (popup._updatePosition) popup._updatePosition();
+    if (popup._adjustPan) popup._adjustPan();
+  } catch (e) { /* 這幾個是 Leaflet 內部 API，換版本失效就算了，不影響內容 */ }
+}
+
 function fillGymana(el, popup) {
   if (!el || !el.dataset.id) return;
   const id = el.dataset.id;
@@ -344,7 +358,7 @@ function fillGymana(el, popup) {
     // 填之前再確認一次：使用者可能已經點去別的道館了
     if (el.dataset.id !== id || !el.isConnected) return;
     el.innerHTML = gymPanelHtml(id);
-    if (popup && popup.update) popup.update();   // 內容變高了，讓 Leaflet 重新定位
+    reflow(popup);
   };
   if (A.events && Date.now() - A.histAt < HIST_TTL) { fill(); return; }
   el.innerHTML = '<div class="gahead">載入變化紀錄…</div>';
