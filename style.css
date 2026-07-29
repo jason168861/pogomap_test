@@ -294,6 +294,7 @@ body.lightmap .leaflet-control-attribution a{color:#0369a1}
    桌機的搜尋留在側欄裡；窄螢幕時側欄是整頁的抽屜，搜尋藏在裡面很難用，
    所以 JS 會把 #searchGrp 搬進 #searchHost，變成浮在地圖上的搜尋列。 */
 #searchHost{display:none}
+#searchMini{display:none}
 
 @media (max-width:820px){
   #panel{width:100%}
@@ -305,6 +306,25 @@ body.lightmap .leaflet-control-attribution a{color:#0369a1}
   /* 側欄收起來時才顯示（側欄展開時是整頁的，不要讓搜尋列疊在上面） */
   body.nopanel #searchHost{display:block;position:absolute;z-index:1001;
     left:8px;right:8px;top:calc(var(--topbar-h) + 8px)}
+
+  /* ---- 收合狀態：只留一顆放大鏡，把地圖讓出來 ----
+     手機螢幕小，一條橫跨整個寬度的搜尋列平常只是在擋地圖。
+     點一下才展開，搜尋完或點空白處自動收回。 */
+  body.searchmini #searchHost{left:auto;right:8px;width:42px}
+  body.searchmini #searchGrp{display:none}
+  body.nopanel.searchmini #searchMini{display:flex;align-items:center;
+    justify-content:center;width:42px;height:42px;padding:0;font-size:18px;
+    border-radius:50%;background:var(--panel);border:1px solid var(--line);
+    box-shadow:0 4px 16px rgba(0,0,0,.45)}
+  /* 收合時搜尋列不佔位子，縮放鈕可以回到上面 */
+  body.searchmini .leaflet-top.leaflet-left{top:8px}
+  /* 展開時 ✕ 一律顯示：有字時是清除，沒字時就是關閉搜尋列。
+     桌機維持原本的「有輸入才出現」。 */
+  body.nopanel:not(.searchmini) #searchHost #qClear{display:block}
+
+  /* 資訊視窗太高時讓它自己捲，而不是撐出畫面外。
+     Leaflet 對 popup 內容有 disableScrollPropagation，捲動不會誤觸地圖。 */
+  .leaflet-popup-content{max-height:62vh;overflow-y:auto;overscroll-behavior:contain}
   #searchHost .grp{margin:0;padding:6px;background:var(--panel);
     border:1px solid var(--line);border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.45)}
   #searchHost .grp h2{display:none}

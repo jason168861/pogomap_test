@@ -679,8 +679,12 @@ const STOP_ICON = L.icon({
 // ★ 一律用「地圖層級」的 popup，不綁在 marker 上。
 //   綁在 marker 上的話，popup 開啟時 autoPan 會移動地圖 -> 觸發重繪 ->
 //   marker 被移除 -> popup 跟著消失。這就是「超出畫面就馬上收起來」的原因。
+// ★ keepInView 一定要 false。它會註冊 moveend -> _adjustPan，
+//   等於「只要你滑動地圖，就把地圖拉回來讓 popup 保持在畫面內」——
+//   手機上資訊視窗比較高時，想滑開看下半部會一直被彈回原位。
+//   autoPan 保留：那只在「開啟」和「內容變高」時作用一次，是想要的行為。
 const sharedPopup = L.popup({
-  autoPan: true, autoPanPadding: [24, 24], keepInView: true,
+  autoPan: true, autoPanPadding: [24, 24], keepInView: false,
   maxWidth: 280, closeButton: true
 });
 
@@ -1287,9 +1291,10 @@ map.on('mousemove', e => {
   $('#coordbox').textContent =
     `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
 });
-// 注意：這裡刻意「不要」加 map.on('click')。
+// 注意：地圖的 click 上「不要開 popup」。
 // Leaflet 的 marker 點擊事件會往上冒泡到地圖，如果地圖也監聽 click 並開 popup，
 // 就會把 marker 剛開好的 popup 內容蓋掉，看起來就像「點不到那個點」。
+// （下面搜尋那一段有掛一個 map.on('click')，但它只收合手機版的搜尋列，不碰 popup。）
 // 想看座標的話，左下角的 #coordbox 已經跟著滑鼠即時顯示了。
 
 /* -------------------------------------------------------------- 搜尋 --- */
@@ -1299,16 +1304,42 @@ map.on('mousemove', e => {
 function placeSearch() {
   const grp = $('#searchGrp');
   const host = mqMobile.matches ? $('#searchHost') : $('#panel');
-  if (grp.parentNode === host) return;
-  if (host.id === 'panel') host.insertBefore(grp, $('#tokenGrp'));
-  else host.appendChild(grp);
+  if (grp.parentNode !== host) {
+    if (host.id === 'panel') host.insertBefore(grp, $('#tokenGrp'));
+    else host.appendChild(grp);
+  }
+  // 換到手機版時預設收合；回到桌機版就把狀態清掉
+  document.body.classList.toggle('searchmini', mqMobile.matches);
 }
 mqMobile.addEventListener('change', placeSearch);
+
+// 手機版的搜尋列平常收成一顆放大鏡，展開後才佔一整條。
+// 收合時要順便把輸入和結果清掉，否則下次展開會看到上一次的殘留。
+function collapseSearch() {
+  if (!mqMobile.matches) return;
+  const q = $('#q');
+  q.blur();
+  q.value = '';
+  q.closest('.qbar').classList.remove('has');   // 清除鈕跟著收起來
+  $('#qList').textContent = '';
+  document.body.classList.add('searchmini');
+}
+function expandSearch() {
+  document.body.classList.remove('searchmini');
+  const q = $('#q');
+  q.focus();
+  // iOS 上剛顯示的元素要等一個 frame 才聚焦得上
+  requestAnimationFrame(() => q.focus());
+}
+$('#searchMini').addEventListener('click', expandSearch);
+
+// 點地圖上的空白處就收回去（有打字的話留著，免得誤觸把輸入弄丟）
+map.on('click', () => { if (!$('#q').value.trim()) collapseSearch(); });
 
 // 選了搜尋結果之後：手機版把鍵盤和結果收掉，不然整張地圖都被結果清單擋住
 function pick(fn) {
   return () => {
-    if (mqMobile.matches) { $('#q').blur(); $('#qList').textContent = ''; }
+    if (mqMobile.matches) collapseSearch();
     fn();
   };
 }
@@ -1445,6 +1476,8 @@ $('#q').addEventListener('focus', e => {
   if (v && !$('#qList').firstChild) renderSearch(v.toLowerCase());
 });
 $('#qClear').addEventListener('click', () => {
+  // 手機版：本來就是空的還按清除 = 想關掉搜尋列，直接收合
+  if (mqMobile.matches && !$('#q').value) { collapseSearch(); return; }
   $('#q').value = '';
   $('#q').closest('.qbar').classList.remove('has');
   $('#qList').textContent = '';
